@@ -126,19 +126,42 @@ export function formatRoadLocation(summary, roadName = summary.street) {
 
 export function findMatchingArea(areas, city, barangay) {
   const normalizedCity = normalizePlace(city);
-  const candidates = (Array.isArray(barangay) ? barangay : [barangay])
-    .map(normalizePlace)
-    .filter(Boolean);
-  if (!candidates.length) return null;
+  const candidateValues = (Array.isArray(barangay) ? barangay : [barangay])
+    .flatMap(value => {
+      const normalized = normalizePlace(value);
+      return [value, normalized].filter(Boolean);
+    })
+    .filter((value, index, values) => values.indexOf(value) === index);
+  if (!candidateValues.length) return null;
 
   const cityExists = normalizedCity
     && areas.some(area => normalizePlace(area.city) === normalizedCity);
 
-  for (const candidate of candidates) {
-    const matches = areas.filter(area => normalizePlace(area.name) === candidate
-      && (!cityExists || normalizePlace(area.city) === normalizedCity));
+  const areaCityMatches = area => {
+    if (!normalizedCity) return true;
+    const areaCity = normalizePlace(area.city);
+    return areaCity === normalizedCity
+      || areaCity.includes(normalizedCity)
+      || normalizedCity.includes(areaCity);
+  };
+
+  for (const candidate of candidateValues) {
+    const normalizedCandidate = normalizePlace(candidate);
+    const matches = areas.filter(area => {
+      const areaName = normalizePlace(area.name);
+      const cityMatches = !cityExists || areaCityMatches(area);
+      return (areaName === normalizedCandidate || areaName === normalizePlace(candidate.replace(/^\s*(barangay|brgy)\.?\s*/i, '')))
+        && cityMatches;
+    });
     if (matches.length === 1) return matches[0];
   }
+
+  const fallback = areas.filter(area => {
+    const areaName = normalizePlace(area.name);
+    return candidateValues.some(candidate => areaName === normalizePlace(candidate) || areaName === normalizePlace(candidate.replace(/^\s*(barangay|brgy)\.?\s*/i, '')))
+      && (!cityExists || areaCityMatches(area));
+  });
+  if (fallback.length === 1) return fallback[0];
   return null;
 }
 

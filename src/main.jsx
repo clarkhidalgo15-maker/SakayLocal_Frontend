@@ -219,19 +219,30 @@ function FocusMapOnLocation({ location }) {
   return null;
 }
 
+function normalizeRoutePoints(points) {
+  if (!Array.isArray(points)) return [];
+  return points
+    .map(point => Array.isArray(point) ? point : (typeof point === 'string' ? point.split(',') : []))
+    .filter(point => Array.isArray(point) && point.length >= 2)
+    .map(([lat, lng]) => [Number(lat), Number(lng)])
+    .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
+}
+
 function MapPanel({ label = 'Calapan City, Oriental Mindoro', route = false, routePoints: customRoutePoints = null, routeMarkers = [], currentLocation = null, focusTerminal = null, terminalItems = terminals, interactive = false, onLocationSelect, onLocationZoom }) {
   const points = terminalItems.map(terminal => [Number(terminal.lat), Number(terminal.lng)]);
-  const routePoints = customRoutePoints || (route ? points : []);
+  const normalizedRoutePoints = normalizeRoutePoints(customRoutePoints || (route ? points : []));
+  const validRouteMarkers = routeMarkers.filter(marker => Number.isFinite(Number(marker.lat)) && Number.isFinite(Number(marker.lng)));
   const marker = !interactive && focusTerminal && Number.isFinite(Number(focusTerminal.lat)) && Number.isFinite(Number(focusTerminal.lng)) ? focusTerminal : null;
   return <div className={`map-panel leaflet-panel ${interactive ? 'map-picker' : ''}`}><MapContainer center={interactive ? orientalMindoroCenter : marker ? [Number(marker.lat), Number(marker.lng)] : calapanCenter} zoom={interactive ? 8 : 14} minZoom={interactive ? 8 : undefined} scrollWheelZoom={!interactive}>
     <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} />
     {interactive && <MapClickHandler onSelect={onLocationSelect} onZoom={onLocationZoom} showMarker />}
     {currentLocation && <FocusMapOnLocation location={currentLocation} />}
-    {routePoints.length > 1 && <FitMapToRoute points={routePoints} />}
-    {route && routePoints.length > 1 && <Polyline positions={routePoints} pathOptions={{ color: '#ffc52f', weight: 6, opacity: 0.9 }} />}
-    {routeMarkers.length > 1 && routePoints.length < 2 && <FitMapToRoute points={routeMarkers.map(item => [Number(item.lat), Number(item.lng)])} />}
+    {normalizedRoutePoints.length > 1 && <FitMapToRoute points={normalizedRoutePoints} />}
+    {normalizedRoutePoints.length > 1 && <Polyline positions={normalizedRoutePoints} pathOptions={{ color: '#1f2937', weight: 12, opacity: 0.22, lineCap: 'round', lineJoin: 'round' }} />}
+    {route && normalizedRoutePoints.length > 1 && <Polyline positions={normalizedRoutePoints} pathOptions={{ color: '#fbbf24', weight: 7, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }} />}
+    {validRouteMarkers.length > 1 && normalizedRoutePoints.length < 2 && <FitMapToRoute points={validRouteMarkers.map(item => [Number(item.lat), Number(item.lng)])} />}
     {currentLocation && <CircleMarker center={currentLocation} radius={9} pathOptions={{ color: '#fff', weight: 3, fillColor: '#1683d8', fillOpacity: 1 }}><Popup>Your current location</Popup></CircleMarker>}
-    {routeMarkers.map((terminal, index) => <Marker key={`${terminal.id || terminal.name}-${index}`} position={[Number(terminal.lat), Number(terminal.lng)]} icon={markerIcon}><Popup>{index === 0 ? 'Route origin' : 'Route destination'}<br /><b>{terminal.name}</b></Popup></Marker>)}
+    {validRouteMarkers.map((terminal, index) => <Marker key={`${terminal.id || terminal.name}-${index}`} position={[Number(terminal.lat), Number(terminal.lng)]} icon={markerIcon}><Popup>{index === 0 ? 'Route origin' : 'Route destination'}<br /><b>{terminal.name}</b></Popup></Marker>)}
     {marker && <Marker position={[Number(marker.lat), Number(marker.lng)]} icon={markerIcon}><Popup>{marker.name || 'Selected terminal location'}</Popup></Marker>}
     {terminalItems.map(terminal => <Marker key={terminal.id} position={[Number(terminal.lat), Number(terminal.lng)]} icon={markerIcon}><Popup><b>{terminal.name}</b><br />{terminal.address}<br /><Link to={`/terminals/${terminal.id}`}>View terminal</Link></Popup></Marker>)}
   </MapContainer><span className="map-label">Leaflet + OpenStreetMap · {label}</span></div>;
@@ -963,7 +974,8 @@ function AdminTerminals() {
   const [pendingAction, setPendingAction] = useState(null);
   const popUps = usePopUps();
   const account = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
-  const visibleAreas = account?.role === 'staff' && account.assigned_city ? areas.filter(area => area.city === account.assigned_city) : areas;
+  const normalizedAssignedCity = account?.role === 'staff' && account.assigned_city ? normalizePlace(account.assigned_city) : '';
+  const visibleAreas = account?.role === 'staff' && account.assigned_city ? areas.filter(area => normalizePlace(area.city) === normalizedAssignedCity) : areas;
   const load = () => { setLoading(true); adminRequest('terminals').then(result => setItems(result.data)).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load terminals', message: error.message })).finally(() => setLoading(false)); };
   useEffect(() => {
     load();
