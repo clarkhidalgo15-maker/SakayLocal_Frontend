@@ -690,10 +690,13 @@ function Login() {
     setRegistered('');
     setRegistrationLoading(true);
     const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
     try {
       await register({ full_name: form.get('full_name'), email: form.get('email'), phone: form.get('phone'), password: form.get('passenger_password') });
       setRegistered('Account created. You can now log in.');
-      event.currentTarget.reset();
+      if (formElement && typeof formElement.reset === 'function') {
+        formElement.reset();
+      }
       popUps.showPopUp({ kind: 'success', title: 'Account created', message: 'You can now log in with your email and password.' });
     } catch (exception) {
       const message = exception.message || 'Registration failed. That email may already be registered.';
