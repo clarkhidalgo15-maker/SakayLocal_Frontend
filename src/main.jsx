@@ -138,6 +138,10 @@ function ScrollTopButton() {
   return <button type="button" className={`scroll-top ${visible ? 'visible' : ''}`} aria-label="Back to top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><span className="arrow" aria-hidden="true">↑</span></button>;
 }
 
+function NotFoundPage() {
+  return <main className="page"><section className="card empty-state" aria-live="polite"><h1>Page not found</h1><p>The page you requested does not exist or has moved.</p><Link className="button yellow" to="/">Go back home</Link></section></main>;
+}
+
 function LocationSelectors({ areas, city, barangay, onCityChange, onBarangayChange, cityLabel = 'Municipality or city', barangayLabel = 'Barangay' }) {
   const cities = [...new Set(areas.map(area => area.city).filter(Boolean))].sort();
   const barangays = areas.filter(area => area.city === city).sort((a, b) => a.name.localeCompare(b.name));
@@ -1144,6 +1148,7 @@ function App() {
     <Route path="/admin/advisories" element={<ProtectedAdmin><AdminCatalog kind="advisories" title="Manage advisories" workflow fields={[{name:'title',label:'Advisory title',required:true,placeholder:'e.g. J2 rerouted today',help:'Short headline passengers see first.'},{name:'advisory_type',label:'Type',required:true,default:'advisory',options:[{value:'advisory',label:'Advisory'},{value:'announcement',label:'Announcement'},{value:'alert',label:'Alert'}],help:'What kind of notice is this?'},{name:'recipient_audience',label:'Email recipients',required:true,default:'passengers',options:[{value:'passengers',label:'Passengers'},{value:'staff',label:'Staff'},{value:'both',label:'Passengers and staff'}],help:'Only active, opted-in passenger/staff accounts are included. Admin accounts are never treated as users or sent advisory emails.'},{name:'body',label:'Message',type:'textarea',required:true,placeholder:'What passengers need to know...',help:'Full details shown on the home page.'}]} /></ProtectedAdmin>} />
     <Route path="/admin/areas" element={<ProtectedAdmin><AdminLocations /></ProtectedAdmin>} />
     <Route path="/admin/users" element={<ProtectedAdmin><AdminCatalog kind="users" title="Manage users" fields={[{name:'full_name',label:'Full name',required:true},{name:'email',label:'Username/email',required:true},{name:'role',label:'Role',required:true,default:'staff',options:[{value:'staff',label:'Municipality staff'},{value:'passenger',label:'Passenger'}]},{name:'assigned_city',label:'Assigned municipality/city'},{name:'phone',label:'Phone'},{name:'password',label:'Password',type:'password'}]} /></ProtectedAdmin>} />
+    <Route path="*" element={<NotFoundPage />} />
   </Routes></RouteTransition></RouteErrorBoundary>;
 }
 createRoot(document.getElementById('root')).render(<BrowserRouter><PopUpsProvider><App /></PopUpsProvider></BrowserRouter>);
