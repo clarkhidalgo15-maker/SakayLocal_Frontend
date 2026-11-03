@@ -11,20 +11,27 @@ async function request(path, options = {}) {
     ...options,
     headers,
   });
-  if (!response.ok) {
-    const message = await response.text();
-    let detail = message;
+  const responseText = await response.text();
+  let payload = null;
+  if (responseText) {
     try {
-      const payload = JSON.parse(message);
-      detail = payload.error || payload.message || message;
+      payload = JSON.parse(responseText);
     } catch {
-      detail = message;
+      payload = null;
     }
+  }
+  if (!response.ok) {
+    const detail = payload?.error || payload?.message || responseText;
     const error = new Error(detail || `API request failed with ${response.status}`);
     error.status = response.status;
     throw error;
   }
-  return response.json();
+  if (!payload) {
+    throw new Error(responseText
+      ? 'The server returned an invalid response. Please check the backend logs.'
+      : `The server returned an empty response (HTTP ${response.status}). Please check that the backend is running.`);
+  }
+  return payload;
 }
 
 function accountRequest(path, options = {}) {
@@ -53,6 +60,13 @@ export function getMyReports() {
 
 export function updateAccount(formData) {
   return accountRequest('/account', { method: 'POST', body: formData });
+}
+
+export function changeAccountPassword(currentPassword, newPassword) {
+  return accountRequest('/account/password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
 }
 
 export function getPublicAsset(path) {
@@ -101,7 +115,8 @@ export function adminRequest(path, method = 'GET', body) {
     return Promise.reject(new Error('Your admin session is missing or expired. Please log in again.'));
   }
   const headers = account?.access_token ? { Authorization: `Bearer ${account.access_token}` } : {};
-  return request(`/admin/${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined }).catch(error => {
+  const requestBody = body instanceof FormData ? body : body ? JSON.stringify(body) : undefined;
+  return request(`/admin/${path}`, { method, headers, body: requestBody }).catch(error => {
     if (error.status === 401) {
       localStorage.removeItem('sakaylokal_admin');
       localStorage.removeItem('sakaylokal_user');
@@ -110,5 +125,12 @@ export function adminRequest(path, method = 'GET', body) {
       }
     }
     throw error;
+  });
+}
+
+export function changeAdminPassword(currentPassword, newPassword) {
+  return adminRequest('account/password', 'POST', {
+    current_password: currentPassword,
+    new_password: newPassword,
   });
 }

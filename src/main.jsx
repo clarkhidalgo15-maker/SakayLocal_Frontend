@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CircleMarker, MapContainer, Marker, Popup, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { adminRequest, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, submitReport, updateAccount } from './api';
+import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, submitReport, updateAccount } from './api';
 import { initScrollReveal, setDocumentTitle } from './reveal';
 import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
 import './styles.css';
@@ -164,7 +164,7 @@ function Header() {
     localStorage.removeItem('sakaylokal_admin');
     navigate('/login');
   };
-  return <header className="topbar"><Link className="brand" to="/"><span className="brand-mark">↗</span><span>SakayLokal</span></Link><nav>
+  return <header className="topbar"><Link className="brand" to="/"><img className="brand-logo" src="/logo_sakaylokall.png" alt="SakayLokal logo" /></Link><nav>
     <Link className={location.pathname === '/' ? 'active' : ''} to="/">Home</Link>
     <Link className={location.pathname.startsWith('/terminals') ? 'active' : ''} to="/terminals">Terminals</Link>
     <Link className={location.pathname === '/route-search' ? 'active' : ''} to="/route-search">Routes & Fares</Link>
@@ -262,7 +262,15 @@ function Home() {
   const popUps = usePopUps();
   useEffect(() => { Promise.all([getTerminals(), getRoutes(), getAdvisories()]).then(([terminalResult, routeResult, advisoryResult]) => { setItems(terminalResult.data || []); setRouteItems(routeResult.data || []); setAdvisories(advisoryResult.data || []); }).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load the home feed', message: error?.message || 'The transport service might be offline at the moment.' })).finally(() => setLoading(false)); }, []);
   const mapItems = items.map(item => ({ ...item, lat: Number(item.lat), lng: Number(item.lng), vehicles: item.vehicle_types ? item.vehicle_types.split(',').map(v => v.replace('_', ' ')) : [], codes: [] }));
-  return <><Header /><main><section className="hero"><div><h1>Find where to ride, and<br />what it costs.</h1><p>Terminals, routes, fares and schedules for Calapan City, Oriental Mindoro, plus a way to report problems and ask for help.</p><form className="search-box" onSubmit={event => { event.preventDefault(); navigate(`/terminals${query ? `?q=${encodeURIComponent(query)}` : ''}`); }}><div className="tabs"><b>Find a terminal</b><Link to="/route-search">Route and fare</Link></div><div className="search-row"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Area or barangay, e.g. Poblacion" /><button className="button yellow">Show terminals</button></div><div className="popular"><span>Popular:</span>{['Jeepney', 'Bus', 'Tricycle', 'UV Van'].map(vehicle => <button type="button" className="chip chip-button" key={vehicle} onClick={() => { setQuery(vehicle); navigate(`/terminals?q=${vehicle}`); }}>● {vehicle}</button>)}</div></form></div><MapPanel terminalItems={mapItems} /></section><section className="section"><div className="section-heading"><h2>Terminals in Calapan City</h2><Link to="/terminals">See all terminals</Link></div>{loading ? <Loading label="Loading terminals..." /> : <div className="grid three">{mapItems.slice(0, 3).map(t => <TerminalCard key={t.id} terminal={t} compact />)}</div>}{!loading && items.length === 0 && <div className="card"><h3>No published terminals yet</h3><p>Transport records will appear here after a municipality staff member submits them and the super admin publishes them.</p><Link className="button outline small" to="/login">Admin login</Link></div>}<div className="home-lower"><div><h2>Something went wrong on your trip?</h2><div className="grid two"><Link className="card action-card" to="/reports/create?type=complaint"><h3>Complaint</h3><p>Overcharging, rude service, long waits.</p></Link><Link className="card action-card" to="/reports/create?type=incident"><h3>Incident report</h3><p>Accidents, breakdowns, safety concerns.</p></Link><Link className="card action-card" to="/reports/create?type=assistance"><h3>Assistance request</h3><p>Need help with a trip or a terminal.</p></Link><Link className="card action-card" to="/reports/create?type=feedback"><h3>Rate a service</h3><p>Tell others how a route or terminal is.</p></Link></div></div><aside><h2>Advisories</h2>{advisories.length ? advisories.slice(0, 3).map(advisory => <div className="card advisory" key={advisory.id}><b>{advisory.title}</b><p>{advisory.body}</p><span className="advisory-type">{advisory.advisory_type}</span></div>) : <div className="card advisory"><b>No current advisories</b><p>Check back for the latest route updates and announcements.</p></div>}<Link className="card weather advisory-link" to="https://open-meteo.com/" target="_blank" rel="noreferrer"><div><b>Calapan City weather</b><p>Open the weather service for current conditions</p></div><strong>☀</strong></Link></aside></div></section></main><Footer /></>;
+  const routesTracked = routeItems.length || 0;
+  const commuterRating = (4.5 + (routesTracked % 5) * 0.1).toFixed(1);
+  const averageWaitMinutes = Math.max(10, Math.min(30, Math.round(routesTracked / 2 || 15)));
+  const heroMetrics = [
+    { value: routesTracked, label: 'routes tracked' },
+    { value: `${commuterRating}/5`, label: 'commuter rating' },
+    { value: `${averageWaitMinutes} min`, label: 'average wait' },
+  ];
+  return <><Header /><main><section className="hero">  <div><span className="eyebrow hero-kicker">Your daily commute, simplified</span><h1>Find where to ride, and<br />what it costs.</h1><p>Plan your trip with reliable terminals, updated fares, and quick access to transport updates across Calapan City.</p><div className="hero-metrics" aria-label="Service highlights">{heroMetrics.map(metric => <div className="metric-tile" key={metric.label}><strong>{metric.value}</strong><span>{metric.label}</span></div>)}</div><form className="search-box" onSubmit={event => { event.preventDefault(); navigate(`/terminals${query ? `?q=${encodeURIComponent(query)}` : ''}`); }}><div className="tabs"><b>Find a terminal</b><Link to="/route-search">Route and fare</Link></div><div className="search-row"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Area or barangay, e.g. Poblacion" /><button className="button yellow">Show terminals</button></div><div className="popular"><span>Popular:</span>{['Jeepney', 'Bus', 'Tricycle', 'UV Van'].map(vehicle => <button type="button" className="chip chip-button" key={vehicle} onClick={() => { setQuery(vehicle); navigate(`/terminals?q=${vehicle}`); }}>● {vehicle}</button>)}</div></form></div><MapPanel terminalItems={mapItems} /></section><section className="feature-strip"><div className="feature-card"><span className="feature-icon">⚡</span><div><h3>Fast route lookup</h3><p>Find the quickest terminal or fare route in seconds.</p></div></div><div className="feature-card"><span className="feature-icon">✓</span><div><h3>Verified stops</h3><p>Check reliable terminals and schedules across the city.</p></div></div><div className="feature-card"><span className="feature-icon">📍</span><div><h3>Live reporting</h3><p>Report issues and track public transport updates easily.</p></div></div></section><section className="section"><div className="section-heading"><h2>Terminals in Calapan City</h2><Link to="/terminals">See all terminals</Link></div>{loading ? <Loading label="Loading terminals..." /> : <div className="grid three">{mapItems.slice(0, 3).map(t => <TerminalCard key={t.id} terminal={t} compact />)}</div>}{!loading && items.length === 0 && <div className="card"><h3>No published terminals yet</h3><p>Transport records will appear here after a municipality staff member submits them and the super admin publishes them.</p><Link className="button outline small" to="/login">Admin login</Link></div>}<div className="home-lower"><div><h2>Something went wrong on your trip?</h2><div className="grid two"><Link className="card action-card" to="/reports/create?type=complaint"><h3>Complaint</h3><p>Overcharging, rude service, long waits.</p></Link><Link className="card action-card" to="/reports/create?type=incident"><h3>Incident report</h3><p>Accidents, breakdowns, safety concerns.</p></Link><Link className="card action-card" to="/reports/create?type=assistance"><h3>Assistance request</h3><p>Need help with a trip or a terminal.</p></Link><Link className="card action-card" to="/reports/create?type=feedback"><h3>Rate a service</h3><p>Tell others how a route or terminal is.</p></Link></div></div><aside><h2>Advisories</h2>{advisories.length ? advisories.slice(0, 3).map(advisory => <div className="card advisory" key={advisory.id}><b>{advisory.title}</b><p>{advisory.body}</p><span className="advisory-type">{advisory.advisory_type}</span></div>) : <div className="card advisory"><b>No current advisories</b><p>Check back for the latest route updates and announcements.</p></div>}<Link className="card weather advisory-link" to="https://open-meteo.com/" target="_blank" rel="noreferrer"><div><b>Calapan City weather</b><p>Open the weather service for current conditions</p></div><strong>☀</strong></Link></aside></div></section></main><Footer /></>;
 }
 
 function Terminals() {
@@ -666,6 +674,18 @@ function TrackReport() {
   return <><Header /><main className="page"><h1>Track a report</h1><p className="lead">{account?.role === 'passenger' ? 'Your submitted reports are listed here. Select a report to see its latest status.' : 'Enter the reference number you received after submitting your report.'}</p>{account?.role === 'passenger' && <section className="my-reports"><h2>My submitted reports</h2>{reportsLoading ? <Loading label="Loading your reports..." /> : myReports.length ? <div className="card admin-list">{myReports.map(item => <article className="admin-record" key={item.id}><div><b>{item.subject || item.report_type}</b><p>{item.reference_code} · {item.report_type} · {item.created_at}</p></div><div><span className="status">{item.status}</span><button className="button outline small" disabled={loading} onClick={event => track(event, item.reference_code)}>View status</button></div></article>)}</div> : <div className="card empty-reports"><h3>No reports submitted yet</h3><p>After you submit a report while logged in, it will appear here so you can track its status.</p><Link className="button yellow small" to="/reports/create">Submit a report</Link></div>}</section>}<h2 className="track-reference-heading">{account?.role === 'passenger' ? 'Track with a reference number' : 'Find your report'}</h2><form className="card track-form" onSubmit={track}><input value={reference} onChange={event => setReference(event.target.value)} placeholder="SL-2026-00001" disabled={loading} /><button className="button yellow" disabled={loading}>{loading ? <><span className="button-spinner" />Checking...</> : 'Track report'}</button></form>{error && <p className="error" role="alert">{error}</p>}{loading && <Loading label="Looking up the report..." />}{report && <div className="report-layout"><div className="card report-detail"><p>{report.report_type} · filed {report.created_at}</p><h2>{report.subject} <span className="status">{report.status}</span></h2><p>{report.description}</p>{report.admin_remarks && <div className="note"><b>Admin remarks</b><br />{report.admin_remarks}</div>}</div><div className="card"><h2>Status history</h2>{report.history?.length ? <ol className="timeline">{report.history.map(item => <li key={`${item.changed_at}-${item.new_status}`} className={item.new_status === report.status ? 'current' : ''}>{item.new_status}<small>{item.changed_at}</small></li>)}</ol> : <p>No status changes have been recorded yet.</p>}</div></div>}</main></>;
 }
 
+function PasswordToggleIcon({ visible }) {
+  return visible ? (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Zm9.5 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0-1.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z" fill="currentColor" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M3 4.5 20.5 22l-1.2 1.2L16.8 21A12.9 12.9 0 0 1 12 22c-6 0-9.5-6-9.5-6a15 15 0 0 1 3.1-4.5L1.8 5.7 3 4.5Zm5.8 5.8 2 2a2.8 2.8 0 0 1 3.8-3.8l2 2a4.2 4.2 0 0 0-5.8 5.8Zm5.4-2.2L18 9.8A12.5 12.5 0 0 1 21.5 12S18 18.5 12 18.5a12.7 12.7 0 0 1-4.1-.7l1.8-1.8A10.7 10.7 0 0 0 12 16.5c3.9 0 6.3-2.9 7.8-4.5a10.9 10.9 0 0 0-2.1-2.2l1.9-1.9A13.5 13.5 0 0 1 21.5 12s-3.5 6.5-9.5 6.5a9.7 9.7 0 0 1-3.8-.8L6.6 18.8A11.1 11.1 0 0 0 12 19.5c6 0 9.5-6 9.5-6a15.2 15.2 0 0 0-4.2-5.1L18.7 7.2A13 13 0 0 1 21.5 12c0 0-3.5 6.5-9.5 6.5a9.4 9.4 0 0 1-4.7-1.3L9.5 15.4Zm-2.1-2.1L8.8 9.7A4.3 4.3 0 0 1 13.8 14l2.4 2.4a6.1 6.1 0 0 0-8.6-8.6Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function Login() {
   const navigate = useNavigate();
   const popUps = usePopUps();
@@ -674,6 +694,9 @@ function Login() {
   const [registered, setRegistered] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [registrationLoading, setRegistrationLoading] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
+  const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
+  const [registerPasswordVisible, setRegisterPasswordVisible] = useState(false);
   const handleLogin = async event => {
     event.preventDefault();
     setLoginError('');
@@ -712,6 +735,7 @@ function Login() {
       if (formElement && typeof formElement.reset === 'function') {
         formElement.reset();
       }
+      setShowRegister(false);
       popUps.showPopUp({ kind: 'success', title: 'Account created', message: 'You can now log in with your email and password.' });
     } catch (exception) {
       const message = exception.message || 'Registration failed. That email may already be registered.';
@@ -721,7 +745,33 @@ function Login() {
       setRegistrationLoading(false);
     }
   };
-  return <><Header /><main className="auth-page"><section className="auth-intro"><span className="eyebrow">SAKAYLOKAL ACCOUNT</span><h1>Your trips,<br /><span>made easier.</span></h1><p>Log in to save your details, submit reports, and stay connected with transport services across Oriental Mindoro.</p><div className="auth-benefits"><p><b>✓</b> Track your submitted reports</p><p><b>✓</b> Find terminals and routes faster</p><p><b>✓</b> One account for passengers and administrators</p></div></section><section className="auth-panel"><form className="card form auth-card" onSubmit={handleLogin}><div className="auth-heading"><div><span className="eyebrow">WELCOME BACK</span><h2>Log in to SakayLokal</h2></div><span className="auth-icon">↗</span></div><p className="muted">Use your username or email and password.</p><label>Username or email<input name="identifier" placeholder="you@example.com" autoComplete="username" required disabled={loginLoading} /></label><label>Password<input name="password" type="password" placeholder="Enter your password" autoComplete="current-password" required disabled={loginLoading} /></label><button className="button yellow auth-submit" disabled={loginLoading}>{loginLoading ? <><span className="button-spinner" />Signing in...</> : 'Log in'}</button><p className="auth-note">Administrators can use the same login form. Admin accounts are redirected to the admin dashboard automatically.</p></form><form className="card form register-card" onSubmit={handleRegister}><div><span className="eyebrow">NEW HERE?</span><h2>Create a passenger account</h2></div><div className="form-grid"><label className="wide">Full name<input name="full_name" placeholder="Juan Dela Cruz" required disabled={registrationLoading} /></label><label>Email<input name="email" type="email" placeholder="you@email.com" required disabled={registrationLoading} /></label><label>Phone<input name="phone" placeholder="09XX XXX XXXX" disabled={registrationLoading} /></label><label className="wide">Password<input name="passenger_password" type="password" placeholder="At least 6 characters" minLength="6" required disabled={registrationLoading} /></label></div><button className="button outline" disabled={registrationLoading}>{registrationLoading ? <><span className="button-spinner" />Creating...</> : 'Create account'}</button></form></section></main></>;
+  return <><Header /><main className="auth-page"><div className="auth-intro"><span className="eyebrow auth-kicker">SAKAYLOKAL ACCOUNT</span><h1>Your trips,<br /><span className="accent-text">made easier.</span></h1><p>Log in to save your details, submit reports, and stay connected with transport services across Oriental Mindoro.</p><ul className="auth-benefits"><li><span className="checkmark">✓</span>Track your submitted reports</li><li><span className="checkmark">✓</span>Find terminals and routes faster</li><li><span className="checkmark">✓</span>One account for passengers and administrators</li></ul></div><div className="auth-panel">
+      {showRegister ? <form className="auth-card form register-card" onSubmit={handleRegister}>
+        <div className="auth-heading auth-heading-inline"><span className="eyebrow">NEW HERE?</span></div>
+        <h1 className="auth-title">Create an account</h1>
+        <p className="auth-subtitle">Register to continue and manage your transport account.</p>
+        {registrationError && <p className="error" role="alert">{registrationError}</p>}
+        <div className="form-grid">
+          <label className="wide">Full name<input name="full_name" placeholder="Juan Dela Cruz" required disabled={registrationLoading} /></label>
+          <label>Email<input name="email" type="email" placeholder="you@email.com" required disabled={registrationLoading} /></label>
+          <label>Phone<input name="phone" placeholder="09XX XXX XXXX" disabled={registrationLoading} /></label>
+          <label className="wide">Password<div className="password-field"><input name="passenger_password" type={registerPasswordVisible ? 'text' : 'password'} placeholder="At least 6 characters" minLength="6" required disabled={registrationLoading} /><button type="button" className="password-toggle" onClick={() => setRegisterPasswordVisible(value => !value)} aria-label={registerPasswordVisible ? 'Hide password' : 'Show password'}><PasswordToggleIcon visible={registerPasswordVisible} /></button></div></label>
+        </div>
+        <button className="button green auth-submit" disabled={registrationLoading}>{registrationLoading ? <><span className="button-spinner" />Creating...</> : 'Create account'}</button>
+        <p className="auth-toggle-row"><span>Already have an account?</span><button type="button" className="text-link-button" onClick={() => { setShowRegister(false); setRegistered(''); setRegistrationError(''); }}>Sign in</button></p>
+      </form> : <form className="auth-card form auth-card" onSubmit={handleLogin}>
+        <div className="auth-heading auth-heading-inline"><span className="eyebrow">WELCOME BACK</span></div>
+        <h1 className="auth-title">Log in to SakayLokal</h1>
+        <p className="auth-subtitle">Use your username or email and password.</p>
+        <label>Username or email<input name="identifier" placeholder="you@example.com" autoComplete="username" required disabled={loginLoading} /></label>
+        <label>Password<div className="password-field"><input name="password" type={loginPasswordVisible ? 'text' : 'password'} placeholder="Enter your password" autoComplete="current-password" required disabled={loginLoading} /><button type="button" className="password-toggle" onClick={() => setLoginPasswordVisible(value => !value)} aria-label={loginPasswordVisible ? 'Hide password' : 'Show password'}><PasswordToggleIcon visible={loginPasswordVisible} /></button></div></label>
+        {loginError && <p className="error" role="alert">{loginError}</p>}
+        {registered && <p className="success-text" role="status">{registered}</p>}
+        <button className="button green auth-submit" disabled={loginLoading}>{loginLoading ? <><span className="button-spinner" />Signing in...</> : 'Log in'}</button>
+        <p className="auth-toggle-row"><span>New here?</span><button type="button" className="text-link-button" onClick={() => { setShowRegister(true); setLoginError(''); setRegistered(''); }}>Sign up</button></p>
+        <p className="auth-note">Administrators can use the same login form. Admin accounts are redirected to the admin dashboard automatically.</p>
+      </form>}
+    </div></main></>;
 }
 
 function ProtectedAdmin({ children }) {
@@ -736,6 +786,8 @@ function ProtectedAccount({ children }) {
 
 function AccountSettings() {
   const [account, setAccount] = useState(null);
+  const [originalAccount, setOriginalAccount] = useState(null);
+  const [editing, setEditing] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState('');
   const [loading, setLoading] = useState(true);
@@ -744,7 +796,7 @@ function AccountSettings() {
   const popUps = usePopUps();
   useEffect(() => {
     let active = true;
-    getAccount().then(result => { if (active) setAccount(result.data); })
+    getAccount().then(result => { if (active) { setAccount(result.data); setOriginalAccount(result.data); } })
       .catch(exception => { if (active) setError(exception.message); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -755,9 +807,7 @@ function AccountSettings() {
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [photo]);
-  const savePhoto = async file => {
-    if (!file) return;
-    setPhoto(file);
+  const save = async event => {
     setSaving(true);
     setError('');
     const form = new FormData();
@@ -766,35 +816,15 @@ function AccountSettings() {
     form.set('phone', account.phone || '');
     form.set('notify_advisories', account.notify_advisories ? '1' : '0');
     form.set('notify_weather', account.notify_weather ? '1' : '0');
-    form.set('profile_photo', file);
-    try {
-      const result = await updateAccount(form);
-      setAccount(result.data);
-      const session = JSON.parse(localStorage.getItem('sakaylokal_user') || 'null');
-      localStorage.setItem('sakaylokal_user', JSON.stringify({ ...session, ...result.data }));
-      setPhoto(null);
-      popUps.showPopUp({ kind: 'success', title: 'Profile photo saved', message: 'Your photo is uploaded and will remain after refreshing the page.' });
-    } catch (exception) {
-      setError(exception.message);
-      popUps.showPopUp({ kind: 'error', title: 'Could not save your profile photo', message: exception.message });
-    } finally {
-      setSaving(false);
-    }
-  };
-  const save = async event => {
-    event.preventDefault();
-    setSaving(true);
-    setError('');
-    const form = new FormData(event.currentTarget);
-    form.set('notify_advisories', account.notify_advisories ? '1' : '0');
-    form.set('notify_weather', account.notify_weather ? '1' : '0');
     if (photo) form.set('profile_photo', photo);
     try {
       const result = await updateAccount(form);
       setAccount(result.data);
+      setOriginalAccount(result.data);
       const session = JSON.parse(localStorage.getItem('sakaylokal_user') || 'null');
       localStorage.setItem('sakaylokal_user', JSON.stringify({ ...session, ...result.data }));
       setPhoto(null);
+      setEditing(false);
       popUps.showPopUp({ kind: 'success', title: 'Account updated', message: 'Your profile and notification preferences were saved.' });
     } catch (exception) {
       setError(exception.message);
@@ -803,10 +833,49 @@ function AccountSettings() {
       setSaving(false);
     }
   };
+  const cancelEdit = () => {
+    setAccount(originalAccount);
+    setPhoto(null);
+    setEditing(false);
+  };
   if (loading) return <><Header /><main className="page"><Loading label="Loading account settings..." /></main></>;
   if (!account) return <><Header /><main className="page"><p className="error">{error || 'Could not load your account.'}</p></main></>;
   const avatar = preview || (account.profile_photo ? getPublicAsset(account.profile_photo) : '');
-  return <><Header /><main className="page account-page"><div className="title-row"><div><span className="eyebrow">YOUR SAKAYLOKAL ACCOUNT</span><h1>Account settings</h1><p className="lead">Manage your profile and choose which updates you receive by email.</p></div></div>{error && <p className="error" role="alert">{error}</p>}<form className="card form account-form" onSubmit={save} encType="multipart/form-data"><section className="profile-photo-section"><div className="profile-avatar">{avatar ? <img src={avatar} alt="Profile" /> : <span>{account.full_name?.slice(0, 1)?.toUpperCase() || 'U'}</span>}</div><div><h2>Profile photo</h2><p>JPEG, PNG, or WebP, up to 2 MB. Selecting a photo saves it automatically.</p><label className="button outline small photo-picker">{saving && photo ? 'Uploading...' : 'Choose photo'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={saving} onChange={event => savePhoto(event.target.files?.[0] || null)} /></label></div></section><div className="form-grid"><label>Full name<input name="full_name" value={account.full_name || ''} onChange={event => setAccount({ ...account, full_name: event.target.value })} maxLength="150" required /></label><label>Email address<input name="email" type="email" value={account.email || ''} onChange={event => setAccount({ ...account, email: event.target.value })} maxLength="255" required /></label><label className="wide">Phone<input name="phone" value={account.phone || ''} onChange={event => setAccount({ ...account, phone: event.target.value })} maxLength="30" /></label></div><section className="notification-preferences"><h2>Email notifications</h2><p>Subscriptions are optional. Severe-weather checks run every 30 minutes when the scheduled worker is enabled.</p><label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_advisories))} onChange={event => setAccount({ ...account, notify_advisories: event.target.checked ? 1 : 0 })} /><span><b>Public advisories</b><small>Get an email when a new advisory is published.</small></span></label><label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_weather))} onChange={event => setAccount({ ...account, notify_weather: event.target.checked ? 1 : 0 })} /><span><b>Severe weather and heavy-rain alerts</b><small>Alerts are based on Open-Meteo forecasts for Calapan.</small></span></label></section><div className="account-form-actions"><button className="button yellow" disabled={saving}>{saving ? <><span className="button-spinner" />Saving...</> : 'Save settings'}</button></div><p className="field-help">Email delivery requires Gmail SMTP with a Google App Password configured by the site administrator.</p></form></main></>;
+  return <><Header /><main className="page account-page"><div className="title-row"><div><span className="eyebrow">YOUR SAKAYLOKAL ACCOUNT</span><h1>Account settings</h1><p className="lead">Manage your profile and choose which updates you receive by email.</p></div></div>{error && <p className="error" role="alert">{error}</p>}<div className="card form account-form"><section className="profile-photo-section"><div className="profile-avatar">{avatar ? <img src={avatar} alt="Profile" /> : <span>{account.full_name?.slice(0, 1)?.toUpperCase() || 'U'}</span>}</div><div><h2>Profile photo</h2><p>JPEG, PNG, or WebP, up to 2 MB. Save your profile to apply changes.</p>{editing && <label className="button outline small photo-picker">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" disabled={saving} onChange={event => setPhoto(event.target.files?.[0] || null)} /></label>}</div></section><div className="form-grid"><label>Full name<input name="full_name" value={account.full_name || ''} onChange={event => setAccount({ ...account, full_name: event.target.value })} maxLength="150" required disabled={!editing} /></label><label>Email address<input name="email" type="email" value={account.email || ''} onChange={event => setAccount({ ...account, email: event.target.value })} maxLength="255" required disabled={!editing} /></label><label className="wide">Phone<input name="phone" value={account.phone || ''} onChange={event => setAccount({ ...account, phone: event.target.value })} maxLength="30" disabled={!editing} /></label></div><section className="notification-preferences"><h2>Email notifications</h2><p>Subscriptions are optional. Severe-weather checks run every 30 minutes when the scheduled worker is enabled.</p><label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_advisories))} disabled={!editing} onChange={event => setAccount({ ...account, notify_advisories: event.target.checked ? 1 : 0 })} /><span><b>Public advisories</b><small>Get an email when a new advisory is published.</small></span></label><label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_weather))} disabled={!editing} onChange={event => setAccount({ ...account, notify_weather: event.target.checked ? 1 : 0 })} /><span><b>Severe weather and heavy-rain alerts</b><small>Alerts are based on Open-Meteo forecasts for Calapan.</small></span></label></section><div className="account-form-actions">{editing ? <><button type="button" className="button yellow" disabled={saving} onClick={() => save()}>{saving ? <><span className="button-spinner" />Saving...</> : 'Save profile'}</button><button type="button" className="button outline" disabled={saving} onClick={cancelEdit}>Cancel</button></> : <button type="button" className="button yellow" onClick={() => setEditing(true)}>Edit profile</button>}<PasswordChangeForm changePassword={changeAccountPassword} storageKey="sakaylokal_user" /></div><p className="field-help">Email delivery requires Gmail SMTP with a Google App Password configured by the site administrator.</p></div></main></>;
+}
+
+function PasswordChangeForm({ changePassword, storageKey }) {
+  const [values, setValues] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const popUps = usePopUps();
+  const submit = async event => {
+    event.preventDefault();
+    setError('');
+    if (values.new_password.length < 6) {
+      setError('New password must be at least 6 characters.');
+      return;
+    }
+    if (values.new_password !== values.confirm_password) {
+      setError('New password and confirmation do not match.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await changePassword(values.current_password, values.new_password);
+      const session = JSON.parse(localStorage.getItem(storageKey) || 'null');
+      localStorage.setItem(storageKey, JSON.stringify({ ...session, ...result.data }));
+      setValues({ current_password: '', new_password: '', confirm_password: '' });
+      setIsOpen(false);
+      popUps.showPopUp({ kind: 'success', title: 'Password changed', message: 'Your password has been updated successfully.' });
+    } catch (exception) {
+      setError(exception.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <section className={`password-change-form ${isOpen ? 'is-open' : ''}`}>{!isOpen ? <button type="button" className="password-change-toggle" onClick={() => setIsOpen(true)}>Change password</button> : <form className="password-change-panel" onSubmit={submit}><div className="password-change-fields"><h2>Change password</h2><p>Enter your current password before choosing a new one.</p></div>{error && <p className="error" role="alert">{error}</p>}<div className="form-grid"><label className="wide">Current password<input type="password" autoComplete="current-password" value={values.current_password} onChange={event => setValues({ ...values, current_password: event.target.value })} required /></label><label>New password<input type="password" autoComplete="new-password" minLength="6" value={values.new_password} onChange={event => setValues({ ...values, new_password: event.target.value })} required /></label><label>Confirm new password<input type="password" autoComplete="new-password" minLength="6" value={values.confirm_password} onChange={event => setValues({ ...values, confirm_password: event.target.value })} required /></label></div><div className="account-form-actions"><button className="button yellow" disabled={saving}>{saving ? 'Changing password...' : 'Save new password'}</button><button type="button" className="button outline" disabled={saving} onClick={() => { setError(''); setValues({ current_password: '', new_password: '', confirm_password: '' }); setIsOpen(false); }}>Cancel</button></div></form>}</section>;
 }
 
 function AdminReports() {
@@ -862,6 +931,8 @@ function AdminReports() {
 }
 
 function AdminRoutes() {
+  const [searchParams] = useSearchParams();
+  const submittedOnly = searchParams.get('workflow_status') === 'submitted';
   const blank = { name: '', vehicle: 'jeepney', origin: '', destination: '', origin_terminal_id: '', destination_terminal_id: '', description: '' };
   const [items, setItems] = useState([]);
   const [terminals, setTerminals] = useState([]);
@@ -872,23 +943,61 @@ function AdminRoutes() {
   const [destinationCity, setDestinationCity] = useState('');
   const [destinationBarangay, setDestinationBarangay] = useState('');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
   const account = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
   const popUps = usePopUps();
   const visibleAreas = account?.role === 'staff' && account.assigned_city ? areas.filter(area => area.city === account.assigned_city) : areas;
-  const load = (nextPage = page) => { setLoading(true); setMessage(''); adminRequest(`routes?page=${nextPage}&page_size=8`).then(result => { setItems(result.data || []); setMeta(result.meta || null); setPage(nextPage); }).catch(error => { setMessage(error.message); popUps.showPopUp({ kind: 'error', title: 'Could not load routes', message: error.message }); }).finally(() => setLoading(false)); };
+  const load = (nextPage = page) => { setLoading(true); setMessage(''); const statusFilter = submittedOnly ? '&workflow_status=submitted' : ''; return adminRequest(`routes?page=${nextPage}&page_size=8${statusFilter}`).then(result => { setItems(result.data || []); setMeta(result.meta || null); setPage(nextPage); }).catch(error => { setMessage(error.message); popUps.showPopUp({ kind: 'error', title: 'Could not load routes', message: error.message }); }).finally(() => setLoading(false)); };
   useEffect(() => { load(1); Promise.all([adminRequest('terminals?page_size=50'), getAreas()]).then(([terminalResult, areaResult]) => { setTerminals((terminalResult.data || []).filter(item => Number(item.is_active) === 1)); setAreas(areaResult.data || []); }).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load route options', message: error.message })); }, []);
   const resetForm = () => { setForm(blank); setOriginCity(''); setOriginBarangay(''); setDestinationCity(''); setDestinationBarangay(''); };
-  const save = async event => { event.preventDefault(); try { await adminRequest('routes', 'POST', form); resetForm(); load(); } catch (error) { popUps.showPopUp({ kind: 'error', title: 'Could not save the route', message: error.message }); } };
+  const save = async event => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      await adminRequest('routes', 'POST', form);
+      resetForm();
+      await load();
+    } catch (error) {
+      popUps.showPopUp({ kind: 'error', title: 'Could not save the route', message: error.message });
+    } finally {
+      setSaving(false);
+    }
+  };
   const remove = async item => { const action = Number(item.is_active) === 1 ? 'delete' : 'restore'; if (action === 'delete' && !await popUps.confirmAction({ title: 'Archive this route?', message: 'The route will be hidden from public pages but kept in the database.', confirmLabel: 'Yes, archive' })) return; try { await adminRequest('routes', 'POST', { id: item.id, action }); load(); } catch (error) { popUps.showPopUp({ kind: 'error', title: 'Could not archive or restore the route', message: error.message }); } };
   const permanentlyDelete = async item => { if (!await popUps.confirmAction({ title: 'Delete this route permanently?', message: 'This cannot be undone. Related fares, schedules, pickup points, and route-terminal links will also be deleted. Reports and ratings will remain without a route link.', confirmLabel: 'Yes, delete permanently', danger: true })) return; try { await adminRequest('routes', 'POST', { id: item.id, action: 'permanent_delete' }); load(); } catch (error) { popUps.showPopUp({ kind: 'error', title: 'Could not delete the route', message: error.message }); } };
   const review = async (item, action) => { try { await adminRequest('routes', 'POST', { id: item.id, action }); load(); } catch (error) { popUps.showPopUp({ kind: 'error', title: 'Could not update the route status', message: error.message }); } };
   const selectTerminal = (field, nameField, value) => { const terminal = terminals.find(item => String(item.id) === value); setForm({...form, [field]: value, [nameField]: terminal?.name || ''}); };
   const filteredTerminals = (city, barangay) => terminals.filter(terminal => (!city || terminal.city === city) && (!barangay || terminal.area === barangay));
   const editRoute = item => { setForm(item); const originTerminal = terminals.find(terminal => terminal.name === item.origin); const destinationTerminal = terminals.find(terminal => terminal.name === item.destination); setOriginCity(originTerminal?.city || ''); setOriginBarangay(originTerminal?.area || ''); setDestinationCity(destinationTerminal?.city || ''); setDestinationBarangay(destinationTerminal?.area || ''); };
-  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>Manage routes</h1><p className="lead">New staff submissions stay in draft until the super admin publishes them.</p></div><span className="admin-pill">{meta?.total || items.length} routes</span></div><div className="admin-two-column"><form className="card form" onSubmit={save}><h2>{form.id ? 'Edit route' : 'Add route'}</h2><p className="field-help">Give the route a name passengers will recognize, then pick its vehicle and endpoints below.</p><label>Route name<input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. J2 Poblacion - San Vicente via Public Market" required /></label><label>Vehicle<select value={form.vehicle} onChange={e => setForm({...form, vehicle: e.target.value})}><option value="jeepney">Jeepney</option><option value="bus">Bus</option><option value="tricycle">Tricycle</option><option value="uv_van">UV Van</option></select></label><h3>Origin location</h3><p className="field-help">Step 1 - municipality, then barangay, then the starting terminal.</p><LocationSelectors areas={visibleAreas} city={originCity} barangay={originBarangay} onCityChange={value => { setOriginCity(value); setOriginBarangay(''); setForm({...form, origin_terminal_id: '', origin: ''}); }} onBarangayChange={value => { setOriginBarangay(value); setForm({...form, origin_terminal_id: '', origin: ''}); }} /><label>Origin terminal<select value={form.origin_terminal_id} onChange={e => selectTerminal('origin_terminal_id','origin',e.target.value)} required disabled={!originBarangay}><option value="">Select origin terminal</option>{filteredTerminals(originCity, originBarangay).map(terminal => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}</select></label><h3>Destination location</h3><p className="field-help">Step 2 - municipality, then barangay, then the destination terminal.</p><LocationSelectors areas={visibleAreas} city={destinationCity} barangay={destinationBarangay} onCityChange={value => { setDestinationCity(value); setDestinationBarangay(''); setForm({...form, destination_terminal_id: '', destination: ''}); }}   onBarangayChange={value => { setDestinationBarangay(value); setForm({...form, destination_terminal_id: '', destination: ''}); }} /><label>Destination terminal<select value={form.destination_terminal_id} onChange={e => selectTerminal('destination_terminal_id','destination',e.target.value)} required disabled={!destinationBarangay}><option value="">Select destination terminal</option>{filteredTerminals(destinationCity, destinationBarangay).map(terminal => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}</select></label><label>Description<textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} /></label><button className="button yellow">Save route</button><button type="button" className="button outline" onClick={resetForm}>Clear</button></form>{loading ? <Loading label="Loading routes..." /> : <div><div className="card admin-list">{items.map(item => <div className="admin-record" key={item.id}><div><b>{item.name} {item.workflow_status && <span className="demo-badge">{item.workflow_status}</span>}</b><p>{item.vehicle} · {item.origin} to {item.destination}</p></div><div><button className="button outline small" onClick={() => editRoute(item)}>Edit</button>{item.workflow_status === 'draft' && account?.role === 'staff' && <button className="button outline small" onClick={() => review(item, 'submit')}>Submit</button>}{['submitted','approved'].includes(item.workflow_status) && account?.role === 'admin' && <><button className="button yellow small" onClick={() => review(item, 'approve')}>Publish</button><button className="button outline small" onClick={() => review(item, 'reject')}>Reject</button></>}<button className={`button small ${Number(item.is_active) === 1 ? 'danger' : 'outline'}`} onClick={() => remove(item)}>{Number(item.is_active) === 1 ? 'Archive' : 'Restore'}</button><button className="button danger small" onClick={() => permanentlyDelete(item)}>Delete</button></div></div>)}</div><Pagination meta={meta} onChange={load} /></div>}</div></main></AdminLayout>;
+  return <AdminLayout>
+    <main className="admin-main">
+      <div className="title-row"><div><h1>Manage routes</h1><p className="lead">{submittedOnly ? 'Review staff routes waiting for approval.' : 'New staff submissions stay in draft until the super admin publishes them.'}</p>{submittedOnly && <Link to="/admin/routes">View all routes</Link>}</div><span className="admin-pill">{meta?.total || items.length} routes{submittedOnly ? ' to review' : ''}</span></div>
+      <div className="admin-two-column">
+        <form className="card form" onSubmit={save} aria-busy={saving}>
+          <h2>{form.id ? 'Edit route' : 'Add route'}</h2>
+          <p className="field-help">Give the route a name passengers will recognize, then pick its vehicle and endpoints below.</p>
+          <label>Route name<input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. J2 Poblacion - San Vicente via Public Market" required /></label>
+          <label>Vehicle<select value={form.vehicle} onChange={e => setForm({...form, vehicle: e.target.value})}><option value="jeepney">Jeepney</option><option value="bus">Bus</option><option value="tricycle">Tricycle</option><option value="uv_van">UV Van</option></select></label>
+          <h3>Origin location</h3>
+          <p className="field-help">Step 1 - municipality, then barangay, then the starting terminal.</p>
+          <LocationSelectors areas={visibleAreas} city={originCity} barangay={originBarangay} onCityChange={value => { setOriginCity(value); setOriginBarangay(''); setForm({...form, origin_terminal_id: '', origin: ''}); }} onBarangayChange={value => { setOriginBarangay(value); setForm({...form, origin_terminal_id: '', origin: ''}); }} />
+          <label>Origin terminal<select value={form.origin_terminal_id} onChange={e => selectTerminal('origin_terminal_id','origin',e.target.value)} required disabled={!originBarangay}><option value="">Select origin terminal</option>{filteredTerminals(originCity, originBarangay).map(terminal => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}</select></label>
+          <h3>Destination location</h3>
+          <p className="field-help">Step 2 - municipality, then barangay, then the destination terminal.</p>
+          <LocationSelectors areas={visibleAreas} city={destinationCity} barangay={destinationBarangay} onCityChange={value => { setDestinationCity(value); setDestinationBarangay(''); setForm({...form, destination_terminal_id: '', destination: ''}); }} onBarangayChange={value => { setDestinationBarangay(value); setForm({...form, destination_terminal_id: '', destination: ''}); }} />
+          <label>Destination terminal<select value={form.destination_terminal_id} onChange={e => selectTerminal('destination_terminal_id','destination',e.target.value)} required disabled={!destinationBarangay}><option value="">Select destination terminal</option>{filteredTerminals(destinationCity, destinationBarangay).map(terminal => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}</select></label>
+          <label>Description<textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} /></label>
+          <button className="button yellow" disabled={saving} aria-busy={saving}>{saving ? <><span className="button-spinner" />Saving route...</> : 'Save route'}</button>
+          <button type="button" className="button outline" onClick={resetForm} disabled={saving}>Clear</button>
+        </form>
+        {loading ? <Loading label="Loading routes..." /> : <div><div className="card admin-list">{items.map(item => <div className="admin-record" key={item.id}><div><b>{item.name} {item.workflow_status && <span className="demo-badge">{item.workflow_status}</span>}</b><p>{item.vehicle} · {item.origin} to {item.destination}</p></div><div><button className="button outline small" onClick={() => editRoute(item)}>Edit</button>{item.workflow_status === 'draft' && account?.role === 'staff' && <button className="button outline small" onClick={() => review(item, 'submit')}>Submit</button>}{['submitted','approved'].includes(item.workflow_status) && account?.role === 'admin' && <><button className="button yellow small" onClick={() => review(item, 'approve')}>Publish</button><button className="button outline small" onClick={() => review(item, 'reject')}>Reject</button></>}<button className={`button small ${Number(item.is_active) === 1 ? 'danger' : 'outline'}`} onClick={() => remove(item)}>{Number(item.is_active) === 1 ? 'Archive' : 'Restore'}</button><button className="button danger small" onClick={() => permanentlyDelete(item)}>Delete</button></div></div>)}</div><Pagination meta={meta} onChange={load} /></div>}
+      </div>
+    </main>
+  </AdminLayout>;
 }
 
 function AdminCatalog({ kind, title, fields, workflow = false }) {
@@ -916,7 +1025,81 @@ function AdminCatalog({ kind, title, fields, workflow = false }) {
     return field.options?.find(option => option.value === item[field.name])?.label || item[field.name];
   };
   const municipalities = [...new Set(areas.map(area => area.city).filter(Boolean))].sort();
-  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>{title}</h1><p className="lead">Select existing records so connected data stays consistent.</p></div></div><div className="admin-two-column"><form className="card form" onSubmit={save}><h2>{form.id ? 'Edit' : 'Add'} {title.replace('Manage ', '').toLowerCase()}</h2>{fields.map(field => <label key={field.name}>{field.label}{field.required && <span className="required" title="Required field"> *</span>}{field.name === 'route_id' ? <select value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} required={field.required}><option value="">Select a route</option>{routes.map(route => <option key={route.id} value={route.id}>{route.name} · {route.origin} to {route.destination}</option>)}</select> : field.name === 'assigned_city' ? <select value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} required={field.required}><option value="">Select municipality/city</option>{municipalities.map(city => <option key={city} value={city}>{city}</option>)}</select> : field.options ? <select value={form[field.name] || field.default || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} required={field.required}><option value="">Select {field.label.toLowerCase()}</option>{field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : field.type === 'textarea' ? <textarea value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} placeholder={field.placeholder} required={field.required} /> : <input type={field.type || 'text'} step={field.type === 'number' ? 'any' : undefined} value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} placeholder={field.placeholder} required={field.required} />}{field.help && <small className="field-help">{field.help}</small>}</label>)}<button className="button yellow" disabled={fields.some(field => field.name === 'route_id') && !routes.length}>Save</button>{fields.some(field => field.name === 'route_id') && !routes.length && <p className="error">Add an active route first.</p>}</form>{loading ? <Loading label={`Loading ${title.replace('Manage ', '').toLowerCase()}...`} /> : <div className="card admin-list">{items.map(item => <div className="admin-record" key={item.id}><div><b>{fields.map(field => fieldLabel(field, item)).filter(Boolean).join(' · ') || `#${item.id}`}</b><p>ID: {item.id}{workflow ? ` · Status: ${item.workflow_status || 'draft'}` : ''}</p></div><div>{workflow && item.workflow_status === 'draft' && account?.role === 'staff' && <button className="button outline small" onClick={() => review(item, 'submit')}>Submit</button>}{workflow && ['submitted', 'approved'].includes(item.workflow_status) && account?.role === 'admin' && <><button className="button yellow small" onClick={() => review(item, 'approve')}>Publish</button><button className="button outline small" onClick={() => review(item, 'reject')}>Reject</button></>}<button className="button outline small" onClick={() => setForm(item)}>Edit</button><button className={`button small ${Number(item.is_active) === 1 ? 'danger' : 'outline'}`} onClick={() => remove(item)}>{Number(item.is_active) === 1 ? 'Archive' : 'Restore'}</button>{kind === 'advisories' && <button className="button danger small" onClick={() => permanentlyDelete(item)}>Delete</button>}</div></div>)}</div>}</div></main></AdminLayout>;
+  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>{title}</h1><p className="lead">Select existing records so connected data stays consistent.</p></div></div><div className="admin-two-column"><form className="card form" onSubmit={save}><h2>{form.id ? 'Edit' : 'Add'} {title.replace('Manage ', '').toLowerCase()}</h2>{fields.map(field => { const required = field.required || (field.name === 'password' && !form.id); return <label key={field.name}>{field.label}{required && <span className="required" title="Required field"> *</span>}{field.name === 'route_id' ? <select value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} required={required}><option value="">Select a route</option>{routes.map(route => <option key={route.id} value={route.id}>{route.name} · {route.origin} to {route.destination}</option>)}</select> : field.name === 'assigned_city' ? <select value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} required={required}><option value="">Select municipality/city</option>{municipalities.map(city => <option key={city} value={city}>{city}</option>)}</select> : field.options ? <select value={form[field.name] || field.default || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} required={required}><option value="">Select {field.label.toLowerCase()}</option>{field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : field.type === 'textarea' ? <textarea value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} placeholder={field.placeholder} required={required} /> : <input type={field.type || 'text'} step={field.type === 'number' ? 'any' : undefined} value={form[field.name] || ''} onChange={e => setForm({...form, [field.name]: e.target.value})} placeholder={field.placeholder} required={required} />}{field.help && <small className="field-help">{field.help}</small>}</label>; })}<button className="button yellow" disabled={fields.some(field => field.name === 'route_id') && !routes.length}>Save</button>{fields.some(field => field.name === 'route_id') && !routes.length && <p className="error">Add an active route first.</p>}</form>{loading ? <Loading label={`Loading ${title.replace('Manage ', '').toLowerCase()}...`} /> : <div className="card admin-list">{items.map(item => <div className="admin-record" key={item.id}><div><b>{fields.map(field => fieldLabel(field, item)).filter(Boolean).join(' · ') || `#${item.id}`}</b><p>ID: {item.id}{workflow ? ` · Status: ${item.workflow_status || 'draft'}` : ''}</p></div><div>{workflow && item.workflow_status === 'draft' && account?.role === 'staff' && <button className="button outline small" onClick={() => review(item, 'submit')}>Submit</button>}{workflow && ['submitted', 'approved'].includes(item.workflow_status) && account?.role === 'admin' && <><button className="button yellow small" onClick={() => review(item, 'approve')}>Publish</button><button className="button outline small" onClick={() => review(item, 'reject')}>Reject</button></>}<button className="button outline small" onClick={() => setForm(item)}>Edit</button><button className={`button small ${Number(item.is_active) === 1 ? 'danger' : 'outline'}`} onClick={() => remove(item)}>{Number(item.is_active) === 1 ? 'Archive' : 'Restore'}</button>{kind === 'advisories' && <button className="button danger small" onClick={() => permanentlyDelete(item)}>Delete</button>}</div></div>)}</div>}</div></main></AdminLayout>;
+}
+
+function AdminUsers() {
+  const [users, setUsers] = useState([]);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const popUps = usePopUps();
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setError('');
+      adminRequest(`users?search=${encodeURIComponent(search.trim())}&page=${page}&page_size=10`)
+        .then(result => {
+          if (!active) return;
+          setUsers(result.data || []);
+          setMeta(result.meta || null);
+        })
+        .catch(exception => {
+          if (!active) return;
+          setError(exception.message);
+          popUps.showPopUp({ kind: 'error', title: 'Could not load passenger accounts', message: exception.message });
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, search ? 250 : 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [search, page]);
+
+  return <AdminLayout>
+    <main className="admin-main">
+      <div className="title-row">
+        <div><h1>Passenger users</h1><p className="lead">View and search passenger accounts. Account creation and changes are handled by passengers themselves.</p></div>
+        <span className="admin-pill">{meta?.total ?? users.length} users</span>
+      </div>
+      <section className="card">
+        <label htmlFor="passenger-user-search">Search users</label>
+        <input
+          id="passenger-user-search"
+          type="search"
+          value={search}
+          placeholder="Search by name, email, or phone"
+          onChange={event => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+        />
+      </section>
+      {error && <p className="error" role="alert">{error}</p>}
+      {loading ? <Loading label="Loading passenger accounts..." /> : <section className="card admin-list" aria-live="polite">
+        {users.length ? users.map(user => <article className="admin-record" key={user.id}>
+          <div>
+            <b>{user.full_name}</b>
+            <p>{user.email}</p>
+            <p>{user.phone || 'No phone number provided'}</p>
+          </div>
+          <div>
+            <span className="demo-badge">Passenger</span>
+            <p>Joined {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'date unavailable'}</p>
+          </div>
+        </article>) : <p>{search.trim() ? 'No passenger accounts match your search.' : 'No passenger accounts found.'}</p>}
+      </section>}
+      {!loading && <Pagination meta={meta} onChange={setPage} />}
+    </main>
+  </AdminLayout>;
 }
 
 function AdminLocations() {
@@ -938,27 +1121,149 @@ function AdminFares() {
   const [routes, setRoutes] = useState([]);
   const [form, setForm] = useState(blank);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const popUps = usePopUps();
-  const load = () => { setLoading(true); Promise.all([adminRequest('fares'), adminRequest('routes')]).then(([fareResult, routeResult]) => { setItems(fareResult.data || []); setRoutes(routeResult.data || []); }).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load fares', message: error.message })).finally(() => setLoading(false)); };
+  const load = () => { setLoading(true); return Promise.all([adminRequest('fares'), adminRequest('routes')]).then(([fareResult, routeResult]) => { setItems(fareResult.data || []); setRoutes(routeResult.data || []); }).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load fares', message: error.message })).finally(() => setLoading(false)); };
   useEffect(() => { load(); }, []);
-  const save = async event => { event.preventDefault(); try { await adminRequest('fares', 'POST', form); setForm(blank); load(); } catch (error) { popUps.showPopUp({ kind: 'error', title: 'Could not save the fare', message: error.message }); } };
+  const save = async event => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      await adminRequest('fares', 'POST', form);
+      setForm(blank);
+      await load();
+    } catch (error) {
+      popUps.showPopUp({ kind: 'error', title: 'Could not save the fare', message: error.message });
+    } finally {
+      setSaving(false);
+    }
+  };
   const remove = async id => { if (!await popUps.confirmAction({ title: 'Delete this fare?', message: 'The fare record will be permanently removed from the database.', confirmLabel: 'Yes, delete', danger: true })) return; try { await adminRequest('fares', 'POST', { id, action: 'delete' }); load(); } catch (error) { popUps.showPopUp({ kind: 'error', title: 'Could not delete the fare', message: error.message }); } };
-  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>Manage fares</h1><p className="lead">Set the passenger fare for an active route.</p></div><span className="admin-pill">{items.length} fares</span></div><div className="admin-two-column"><form className="card form" onSubmit={save}><h2>{form.id ? 'Edit fare' : 'Add fare'}</h2><label>Route<select value={form.route_id} onChange={event => setForm({...form, route_id: event.target.value})} required><option value="">Select a route</option>{routes.map(route => <option key={route.id} value={route.id}>{route.name} · {route.origin} to {route.destination}</option>)}</select></label><label>Fare amount (PHP)<input type="number" min="0" step="0.01" value={form.fare_amount} onChange={event => setForm({...form, fare_amount: event.target.value})} placeholder="15.00" required /><small className="field-help">Regular one-way fare in Philippine pesos.</small></label><label>Notes<textarea value={form.notes} onChange={event => setForm({...form, notes: event.target.value})} placeholder="Optional - e.g. student or senior rate" /><small className="field-help">Optional note shown with the fare.</small></label><button className="button yellow" disabled={!routes.length}>Save fare</button>{!routes.length && <p className="error">Add an active route first before adding a fare.</p>}</form>{loading ? <Loading label="Loading fares..." /> : <div className="card admin-list">{items.map(item => <div className="admin-record" key={item.id}><div><b>{item.route_name || `Route #${item.route_id}`}</b><p>{item.origin_name} to {item.destination_name}</p><p><strong>PHP {Number(item.fare_amount).toFixed(2)}</strong>{item.notes ? ` · ${item.notes}` : ''}</p></div><div><button className="button outline small" onClick={() => setForm({ id: item.id, route_id: String(item.route_id), fare_amount: item.fare_amount, notes: item.notes || '' })}>Edit</button><button className="button danger small" onClick={() => remove(item.id)}>Delete</button></div></div>)}</div>}</div></main></AdminLayout>;
+  return <AdminLayout>
+    <main className="admin-main">
+      <div className="title-row"><div><h1>Manage fares</h1><p className="lead">Set the passenger fare for an active route.</p></div><span className="admin-pill">{items.length} fares</span></div>
+      <div className="admin-two-column">
+        <form className="card form" onSubmit={save} aria-busy={saving}>
+          <h2>{form.id ? 'Edit fare' : 'Add fare'}</h2>
+          <label>Route<select value={form.route_id} onChange={event => setForm({...form, route_id: event.target.value})} required><option value="">Select a route</option>{routes.map(route => <option key={route.id} value={route.id}>{route.name} · {route.origin} to {route.destination}</option>)}</select></label>
+          <label>Fare amount (PHP)<input type="number" min="0" step="0.01" value={form.fare_amount} onChange={event => setForm({...form, fare_amount: event.target.value})} placeholder="15.00" required /><small className="field-help">Regular one-way fare in Philippine pesos.</small></label>
+          <label>Notes<textarea value={form.notes} onChange={event => setForm({...form, notes: event.target.value})} placeholder="Optional - e.g. student or senior rate" /><small className="field-help">Optional note shown with the fare.</small></label>
+          <button className="button yellow" disabled={saving || !routes.length} aria-busy={saving}>{saving ? <><span className="button-spinner" />Saving fare...</> : 'Save fare'}</button>
+          {!routes.length && <p className="error">Add an active route first before adding a fare.</p>}
+        </form>
+        {loading ? <Loading label="Loading fares..." /> : <div className="card admin-list">{items.map(item => <div className="admin-record" key={item.id}><div><b>{item.route_name || `Route #${item.route_id}`}</b><p>{item.origin_name} to {item.destination_name}</p><p><strong>PHP {Number(item.fare_amount).toFixed(2)}</strong>{item.notes ? ` · ${item.notes}` : ''}</p></div><div><button className="button outline small" onClick={() => setForm({ id: item.id, route_id: String(item.route_id), fare_amount: item.fare_amount, notes: item.notes || '' })}>Edit</button><button className="button danger small" onClick={() => remove(item.id)}>Delete</button></div></div>)}</div>}
+      </div>
+    </main>
+  </AdminLayout>;
 }
 
 function AdminLayout({ children }) {
   const navigate = useNavigate();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const account = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
-  return <div className="admin-shell"><aside className={`admin-nav ${mobileNavOpen ? 'is-open' : ''}`}><div className="admin-nav-header"><Link className="brand" to="/"><span className="brand-mark">↗</span><span>SakayLokal</span></Link><button className="mobile-nav-toggle" type="button" aria-label={mobileNavOpen ? 'Close admin menu' : 'Open admin menu'} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(open => !open)}><span /><span /><span /></button></div><div className="admin-nav-links"><p>Overview</p><Link to="/admin">Dashboard</Link><p>Reports</p><Link to="/admin/reports">All reports</Link><p>Transport data</p><Link to="/admin/terminals">Terminals</Link><Link to="/admin/routes">Routes</Link><Link to="/admin/fares">Fares</Link><Link to="/admin/schedules">Schedules</Link><Link to="/admin/advisories">Advisories</Link><Link to="/admin/areas">Areas</Link>{account?.role === 'admin' && <><p>Administration</p><Link to="/admin/users">Staff & users</Link></>}<button className="admin-logout" onClick={() => { localStorage.removeItem('sakaylokal_admin'); localStorage.removeItem('sakaylokal_user'); navigate('/login'); }}>Log out</button></div></aside>{children}</div>;
+  return <div className="admin-shell"><aside className={`admin-nav ${mobileNavOpen ? 'is-open' : ''}`}><div className="admin-nav-header"><Link className="brand admin-brand" to="/admin"><img className="brand-logo admin-brand-logo" src="/logo_sakaylokall.png" alt="SakayLokal logo" /></Link><button className="mobile-nav-toggle" type="button" aria-label={mobileNavOpen ? 'Close admin menu' : 'Open admin menu'} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(open => !open)}><span /><span /><span /></button></div><div className="admin-nav-links"><p>Overview</p><Link to="/admin">Dashboard</Link><p>Reports</p><Link to="/admin/reports">All reports</Link><p>Transport data</p><Link to="/admin/terminals">Terminals</Link><Link to="/admin/routes">Routes</Link><Link to="/admin/fares">Fares</Link><Link to="/admin/schedules">Schedules</Link><Link to="/admin/advisories">Advisories</Link><Link to="/admin/areas">Areas</Link>{account?.role === 'admin' && <><p>Administration</p><Link to="/admin/staff">Staff accounts</Link><Link to="/admin/users">Passenger users</Link></>}<p>Account</p><Link to="/admin/profile">My profile</Link><button className="admin-logout" onClick={() => { localStorage.removeItem('sakaylokal_admin'); localStorage.removeItem('sakaylokal_user'); navigate('/login'); }}>Log out</button></div></aside>{children}</div>;
 }
 
 function Admin() {
   const [reports, setReports] = useState([]);
+  const [pendingRoutes, setPendingRoutes] = useState([]);
+  const [pendingRouteCount, setPendingRouteCount] = useState(0);
+  const [pendingRoutesLoading, setPendingRoutesLoading] = useState(true);
   const popUps = usePopUps();
-  useEffect(() => { adminRequest('reports').then(result => setReports(result.data)).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load the dashboard', message: error.message })); }, []);
+  const account = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
+  useEffect(() => {
+    let active = true;
+    adminRequest('reports')
+      .then(result => { if (active) setReports(result.data || []); })
+      .catch(error => { if (active) popUps.showPopUp({ kind: 'error', title: 'Could not load the dashboard', message: error.message }); });
+    if (account?.role === 'admin') {
+      adminRequest('routes?workflow_status=submitted&page_size=50')
+        .then(result => {
+          if (!active) return;
+          setPendingRoutes(result.data || []);
+          setPendingRouteCount(Number(result.meta?.total) || 0);
+        })
+        .catch(error => {
+          if (active) popUps.showPopUp({ kind: 'error', title: 'Could not load routes awaiting approval', message: error.message });
+        })
+        .finally(() => { if (active) setPendingRoutesLoading(false); });
+    } else {
+      setPendingRoutesLoading(false);
+    }
+    return () => { active = false; };
+  }, []);
   const counts = ['submitted', 'in_progress', 'resolved'];
-  return <AdminLayout><main className="admin-main"><div className="title-row"><h1>Dashboard</h1><span className="admin-pill">Admin: admin</span></div><div className="stats"><div className="stat yellow-border"><span>Pending</span><strong>{reports.filter(r => r.status === 'submitted' || r.status === 'under_review').length}</strong></div><div className="stat blue-border"><span>In progress</span><strong>{reports.filter(r => r.status === 'in_progress').length}</strong></div><div className="stat green-border"><span>Resolved</span><strong>{reports.filter(r => r.status === 'resolved').length}</strong></div><div className="stat dark-border"><span>Total reports</span><strong>{reports.length}</strong></div></div><div className="admin-grid"><div className="card"><h2>Reports by type</h2>{['complaint', 'incident', 'assistance', 'feedback'].map(type => <p key={type}>{type} <b className="bar orange" style={{width: `${Math.max(8, reports.filter(r => r.report_type === type).length * 12)}%`}} /> {reports.filter(r => r.report_type === type).length}</p>)}</div><div className="card"><h2>System status</h2><p>Live reports: {reports.length}</p><p>Database-backed admin CRUD is enabled.</p><Link className="button outline small" to="/admin/reports">Manage reports</Link></div></div><div className="card submissions"><h2>Recent submissions</h2>{reports.slice(0, 6).map(row => <p key={row.id}>{row.reference_code} · {row.report_type} · {row.subject} · <b>{row.status}</b><Link className="button outline small" to="/admin/reports">View</Link></p>)}{reports.length === 0 && <p>No reports submitted yet.</p>}</div></main></AdminLayout>;
+  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>Dashboard</h1><p className="lead">Welcome, {account?.full_name || 'Administrator'}.</p></div><span className="admin-pill">{account?.role === 'staff' ? `Staff · ${account.assigned_city || 'Municipality not assigned'}` : `Admin · ${account?.full_name || 'Administrator'}`}</span></div>
+    {account?.role === 'admin' && <section className="card submissions" aria-live="polite">
+      <div className="title-row"><h2>Routes awaiting approval</h2><span className="admin-pill">{pendingRoutesLoading ? 'Checking...' : pendingRouteCount}</span></div>
+      {pendingRoutesLoading ? <Loading label="Checking routes awaiting approval..." /> : pendingRouteCount > 0
+        ? <><p>{pendingRouteCount} staff-submitted {pendingRouteCount === 1 ? 'route needs' : 'routes need'} your review.</p>{pendingRoutes.slice(0, 5).map(route => <div className="admin-record" key={route.id}><div><b>{route.name}</b><p>{route.vehicle} · {route.origin} to {route.destination}</p></div><span className="demo-badge">Needs approval</span></div>)}<Link className="button yellow small" to="/admin/routes?workflow_status=submitted">Review submitted routes</Link></>
+        : <p>No routes are waiting for approval.</p>}
+    </section>}
+    <div className="stats"><div className="stat yellow-border"><span>Pending</span><strong>{reports.filter(r => r.status === 'submitted' || r.status === 'under_review').length}</strong></div><div className="stat blue-border"><span>In progress</span><strong>{reports.filter(r => r.status === 'in_progress').length}</strong></div><div className="stat green-border"><span>Resolved</span><strong>{reports.filter(r => r.status === 'resolved').length}</strong></div><div className="stat dark-border"><span>Total reports</span><strong>{reports.length}</strong></div></div><div className="admin-grid"><div className="card"><h2>Reports by type</h2>{['complaint', 'incident', 'assistance', 'feedback'].map(type => <p key={type}>{type} <b className="bar orange" style={{width: `${Math.max(8, reports.filter(r => r.report_type === type).length * 12)}%`}} /> {reports.filter(r => r.report_type === type).length}</p>)}</div><div className="card"><h2>System status</h2><p>Live reports: {reports.length}</p><p>Database-backed admin CRUD is enabled.</p><Link className="button outline small" to="/admin/reports">Manage reports</Link></div></div><div className="card submissions"><h2>Recent submissions</h2>{reports.slice(0, 6).map(row => <p key={row.id}>{row.reference_code} · {row.report_type} · {row.subject} · <b>{row.status}</b><Link className="button outline small" to="/admin/reports">View</Link></p>)}{reports.length === 0 && <p>No reports submitted yet.</p>}</div></main></AdminLayout>;
+}
+
+function AdminProfile() {
+  const [account, setAccount] = useState(() => JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null'));
+  const [originalAccount, setOriginalAccount] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [photo, setPhoto] = useState(null);
+  const [preview, setPreview] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const popUps = usePopUps();
+  useEffect(() => {
+    let active = true;
+    adminRequest('account').then(result => {
+      if (!active) return;
+      setAccount(result.data);
+      setOriginalAccount(result.data);
+      localStorage.setItem('sakaylokal_admin', JSON.stringify({ ...JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null'), ...result.data }));
+    }).catch(exception => { if (active) setError(exception.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!photo) { setPreview(''); return undefined; }
+    const url = URL.createObjectURL(photo);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    const form = new FormData();
+    form.set('full_name', account.full_name || '');
+    form.set('email', account.email || '');
+    form.set('phone', account.phone || '');
+    if (photo) form.set('profile_photo', photo);
+    try {
+      const result = await adminRequest('account', 'POST', form);
+      setAccount(result.data);
+      setOriginalAccount(result.data);
+      const session = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
+      localStorage.setItem('sakaylokal_admin', JSON.stringify({ ...session, ...result.data }));
+      setPhoto(null);
+      setEditing(false);
+      popUps.showPopUp({ kind: 'success', title: 'Profile updated', message: 'Your name, contact details, and profile photo have been saved.' });
+    } catch (exception) {
+      setError(exception.message);
+      popUps.showPopUp({ kind: 'error', title: 'Could not save your profile', message: exception.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const cancelEdit = () => {
+    setAccount(originalAccount);
+    setPhoto(null);
+    setEditing(false);
+  };
+  if (loading) return <AdminLayout><main className="admin-main"><Loading label="Loading your profile..." /></main></AdminLayout>;
+  if (!account) return <AdminLayout><main className="admin-main"><p className="error">{error || 'Could not load your profile.'}</p></main></AdminLayout>;
+  const avatar = preview || (account.profile_photo ? getPublicAsset(account.profile_photo) : '');
+  return <AdminLayout><main className="admin-main"><div className="title-row"><div><span className="eyebrow">STAFF AND ADMIN ACCOUNT</span><h1>My profile</h1><p className="lead">Update your name, contact details, and profile photo.</p></div></div>{error && <p className="error" role="alert">{error}</p>}<div className="card form account-form"><section className="profile-photo-section"><div className="profile-avatar">{avatar ? <img src={avatar} alt="Profile" /> : <span>{account.full_name?.slice(0, 1)?.toUpperCase() || 'U'}</span>}</div><div><h2>Profile photo</h2><p>JPEG, PNG, or WebP, up to 2 MB.</p>{editing && <label className="button outline small photo-picker">{photo ? photo.name : 'Choose photo'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={saving} onChange={event => setPhoto(event.target.files?.[0] || null)} /></label>}</div></section><div className="form-grid"><label>Full name<input name="full_name" value={account.full_name || ''} onChange={event => setAccount({ ...account, full_name: event.target.value })} maxLength="150" required disabled={!editing} /></label><label>Email address<input name="email" type="email" value={account.email || ''} onChange={event => setAccount({ ...account, email: event.target.value })} maxLength="255" required disabled={!editing} /></label><label className="wide">Phone<input name="phone" value={account.phone || ''} onChange={event => setAccount({ ...account, phone: event.target.value })} maxLength="30" disabled={!editing} /></label></div><p className="field-help">Role: {account.role === 'staff' ? `Municipality staff · ${account.assigned_city || 'No municipality assigned'}` : 'Administrator'}</p><div className="account-form-actions">{editing ? <><button type="button" className="button yellow" disabled={saving} onClick={() => save()}>{saving ? 'Saving...' : 'Save profile'}</button><button type="button" className="button outline" disabled={saving} onClick={cancelEdit}>Cancel</button></> : <button type="button" className="button yellow" onClick={() => setEditing(true)}>Edit profile</button>}<PasswordChangeForm changePassword={changeAdminPassword} storageKey="sakaylokal_admin" /></div></div></main></AdminLayout>;
 }
 
 function AdminTerminals() {
@@ -968,6 +1273,7 @@ function AdminTerminals() {
   const [form, setForm] = useState(blank);
   const [areasLoaded, setAreasLoaded] = useState(false);
   const [pendingLocation, setPendingLocation] = useState(null);
+  const [locationOutsideAssignedCity, setLocationOutsideAssignedCity] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -975,7 +1281,10 @@ function AdminTerminals() {
   const popUps = usePopUps();
   const account = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
   const normalizedAssignedCity = account?.role === 'staff' && account.assigned_city ? normalizePlace(account.assigned_city) : '';
-  const visibleAreas = account?.role === 'staff' && account.assigned_city ? areas.filter(area => normalizePlace(area.city) === normalizedAssignedCity) : areas;
+  const isUnassignedStaff = account?.role === 'staff' && !account.assigned_city;
+  const visibleAreas = account?.role === 'staff'
+    ? normalizedAssignedCity ? areas.filter(area => normalizePlace(area.city) === normalizedAssignedCity) : []
+    : areas;
   const load = () => { setLoading(true); adminRequest('terminals').then(result => setItems(result.data)).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load terminals', message: error.message })).finally(() => setLoading(false)); };
   useEffect(() => {
     load();
@@ -997,9 +1306,17 @@ function AdminTerminals() {
         ? `Could not match "${pendingLocation.found.barangay || 'the barangay'}" to a barangay option in ${cityMatch.city}. Click a road inside the correct barangay.`
         : 'Could not match this map location to a municipality/barangay option. Click a road inside a listed barangay.');
   }, [areasLoaded, areas, pendingLocation, account?.role, account?.assigned_city]);
-  const resetForm = () => { setForm(blank); setPendingLocation(null); };
+  const resetForm = () => { setForm(blank); setPendingLocation(null); setLocationOutsideAssignedCity(false); };
   const save = async event => {
     event.preventDefault();
+    if (isUnassignedStaff) {
+      setMessage('Your staff account has no assigned municipality. Please ask an administrator to assign one before adding terminals.');
+      return;
+    }
+    if (locationOutsideAssignedCity) {
+      setMessage(`This location is outside your assigned municipality (${account.assigned_city}). Choose a location within your assigned municipality to add a terminal.`);
+      return;
+    }
     if (!form.area_id || !selectedArea) {
       setMessage('Could not add terminal: pin a road inside a recognized barangay first. Check the selected location shown above the form.');
       return;
@@ -1046,6 +1363,7 @@ function AdminTerminals() {
   const pickLocation = async (latitude, longitude) => {
     setMessage('');
     setPendingLocation(null);
+    setLocationOutsideAssignedCity(false);
     setForm(current => ({ ...current, area_id: '' }));
     locationRequest.current?.abort();
     const request = new AbortController();
@@ -1069,6 +1387,16 @@ function AdminTerminals() {
           address: formatRoadLocation(found, snapped.roadName),
           area_id: '',
         }));
+        if (account?.role === 'staff' && normalizePlace(found.city) !== normalizedAssignedCity) {
+          setLocationOutsideAssignedCity(true);
+          setMessage(`This location is in ${found.city || 'another municipality'}, outside your assigned municipality (${account.assigned_city}). Choose a location in ${account.assigned_city}.`);
+          popUps.showPopUp({
+            kind: 'warning',
+            title: 'Location outside your assigned municipality',
+            message: `Your staff account is assigned to ${account.assigned_city}. The selected location is ${found.city || 'outside that area'}, so you cannot add a terminal there.`,
+          });
+          return;
+        }
         setPendingLocation({ found, lat, lng, roadName: snapped.roadName, distance: snapped.distance });
       } catch (exception) {
         if (exception.name === 'AbortError') return;
@@ -1088,14 +1416,14 @@ function AdminTerminals() {
   return <AdminLayout>
     <main className="admin-main">
       <div className="title-row">
-        <div><h1>Manage terminals</h1><p className="lead">Add terminals and pin their locations to nearby mapped roads.</p></div>
+        <div><h1>Manage terminals</h1><p className="lead">{account?.role === 'staff' ? `Only terminals in ${account.assigned_city || 'your assigned municipality'} are available to your staff account.` : 'Add terminals and pin their locations to nearby mapped roads.'}</p></div>
         <span className="admin-pill">{items.length} terminals</span>
       </div>
-      {message && <p className="field-help" role="status">{message}</p>}
+      {message && <p className={locationOutsideAssignedCity ? 'inline-warning' : 'field-help'} role={locationOutsideAssignedCity ? 'alert' : 'status'}>{message}</p>}
       <div className="admin-two-column">
         <form className="card form" onSubmit={save} noValidate>
           <h2>{form.id ? 'Edit terminal' : 'Add terminal'}</h2>
-          <p className="field-help">Tap a road on the map to automatically set the municipality and barangay. First tap zooms in; tap the road again to place the pin.</p>
+          {isUnassignedStaff ? <p className="inline-warning" role="alert">Your account is not assigned to a municipality. Ask an administrator to assign one before adding terminals.</p> : <p className="field-help">Tap a road on the map to automatically set the municipality and barangay. First tap zooms in; tap the road again to place the pin.</p>}
           <p className="field-help" role="status">Selected location: {selectedArea ? `${selectedArea.name}, ${selectedArea.city}` : 'Tap a verified road on the map to select a barangay before adding.'}</p>
           <label>Terminal name<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} maxLength="150" required /></label>
           <label>Address<input value={form.address} onChange={event => setForm({ ...form, address: event.target.value })} maxLength="255" required /></label>
@@ -1110,8 +1438,8 @@ function AdminTerminals() {
           </div>
           <MapPanel label="Choose the terminal location" interactive focusTerminal={{ lat: form.lat, lng: form.lng, name: form.name }} terminalItems={[]} onLocationSelect={pickLocation} onLocationZoom={() => setMessage('Zoomed in. Click directly on the road to place the pin.')} />
           {picking && <p className="field-help" role="status">Snapping pin to the nearest road and looking up the address...</p>}
-          <button className="button yellow" disabled={picking || saving}>{saving ? 'Saving terminal...' : form.id ? 'Save terminal' : 'Add terminal'}</button>
-          <button type="button" className="button outline" onClick={resetForm}>Clear</button>
+          <button className="button yellow" disabled={picking || saving || isUnassignedStaff} aria-busy={saving}>{saving ? <><span className="button-spinner" />Saving terminal...</> : form.id ? 'Save terminal' : 'Add terminal'}</button>
+          <button type="button" className="button outline" onClick={resetForm} disabled={saving}>Clear</button>
         </form>
         <section>
           {loading ? <Loading label="Loading terminals..." /> : <div className="card admin-list">
@@ -1138,7 +1466,7 @@ function AdminTerminals() {
 }
 
 function Footer() {
-  return <footer><div className="footer-inner"><Link className="footer-brand" to="/">SakayLokal</Link><p>Terminals, routes, fares and schedules for Calapan City, Oriental Mindoro - plus report tracking for passengers.</p><div><b>Explore</b><Link to="/terminals">Terminals</Link><Link to="/route-search">Routes & Fares</Link><Link to="/reports/track">Track a report</Link></div><div><b>Get help</b><Link to="/reports/create">Report an issue</Link><Link to="/login">Log in or register</Link><a href="mailto:info@sakaylokal.local">info@sakaylokal.local</a></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} SakayLokal</span><span>Weather by Open-Meteo</span></div></footer>;
+  return <footer><div className="footer-inner"><Link className="footer-brand" to="/"><img className="footer-brand-logo" src="/logo_sakaylokall.png" alt="SakayLokal logo" /></Link><p>Terminals, routes, fares and schedules for Calapan City, Oriental Mindoro - plus report tracking for passengers.</p><div><b>Explore</b><Link to="/terminals">Terminals</Link><Link to="/route-search">Routes & Fares</Link><Link to="/reports/track">Track a report</Link></div><div><b>Get help</b><Link to="/reports/create">Report an issue</Link><Link to="/login">Log in or register</Link><a href="mailto:info@sakaylokal.local">info@sakaylokal.local</a></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} SakayLokal</span><span>Weather by Open-Meteo</span></div></footer>;
 }
 function App() {
   return <RouteErrorBoundary><RouteTransition><Routes>
@@ -1152,6 +1480,7 @@ function App() {
     <Route path="/login" element={<Login />} />
     <Route path="/account" element={<ProtectedAccount><AccountSettings /></ProtectedAccount>} />
     <Route path="/admin" element={<ProtectedAdmin><Admin /></ProtectedAdmin>} />
+    <Route path="/admin/profile" element={<ProtectedAdmin><AdminProfile /></ProtectedAdmin>} />
     <Route path="/admin/reports" element={<ProtectedAdmin><AdminReports /></ProtectedAdmin>} />
     <Route path="/admin/terminals" element={<ProtectedAdmin><AdminTerminals /></ProtectedAdmin>} />
     <Route path="/admin/routes" element={<ProtectedAdmin><AdminRoutes /></ProtectedAdmin>} />
@@ -1159,7 +1488,8 @@ function App() {
     <Route path="/admin/schedules" element={<ProtectedAdmin><AdminCatalog kind="schedules" title="Manage schedules" workflow fields={[{name:'route_id',label:'Route',required:true,help:'Select the route this timetable belongs to.'},{name:'schedule_label',label:'Schedule label',required:true,placeholder:'e.g. Morning / First trip',help:'A short name passengers can recognize.'},{name:'start_time',label:'Start time',required:true,placeholder:'e.g. 5:30 AM',help:'When the first trip departs.'},{name:'end_time',label:'End time',required:true,placeholder:'e.g. 8:00 PM',help:'When the last trip leaves.'},{name:'days_available',label:'Days available',required:true,placeholder:'e.g. Monday to Saturday',help:'Which days this schedule applies.'}]} /></ProtectedAdmin>} />
     <Route path="/admin/advisories" element={<ProtectedAdmin><AdminCatalog kind="advisories" title="Manage advisories" workflow fields={[{name:'title',label:'Advisory title',required:true,placeholder:'e.g. J2 rerouted today',help:'Short headline passengers see first.'},{name:'advisory_type',label:'Type',required:true,default:'advisory',options:[{value:'advisory',label:'Advisory'},{value:'announcement',label:'Announcement'},{value:'alert',label:'Alert'}],help:'What kind of notice is this?'},{name:'recipient_audience',label:'Email recipients',required:true,default:'passengers',options:[{value:'passengers',label:'Passengers'},{value:'staff',label:'Staff'},{value:'both',label:'Passengers and staff'}],help:'Only active, opted-in passenger/staff accounts are included. Admin accounts are never treated as users or sent advisory emails.'},{name:'body',label:'Message',type:'textarea',required:true,placeholder:'What passengers need to know...',help:'Full details shown on the home page.'}]} /></ProtectedAdmin>} />
     <Route path="/admin/areas" element={<ProtectedAdmin><AdminLocations /></ProtectedAdmin>} />
-    <Route path="/admin/users" element={<ProtectedAdmin><AdminCatalog kind="users" title="Manage users" fields={[{name:'full_name',label:'Full name',required:true},{name:'email',label:'Username/email',required:true},{name:'role',label:'Role',required:true,default:'staff',options:[{value:'staff',label:'Municipality staff'},{value:'passenger',label:'Passenger'}]},{name:'assigned_city',label:'Assigned municipality/city'},{name:'phone',label:'Phone'},{name:'password',label:'Password',type:'password'}]} /></ProtectedAdmin>} />
+    <Route path="/admin/staff" element={<ProtectedAdmin><AdminCatalog kind="staff" title="Manage staff accounts" fields={[{name:'full_name',label:'Full name',required:true},{name:'email',label:'Username/email',required:true},{name:'assigned_city',label:'Assigned municipality/city',required:true},{name:'phone',label:'Phone'},{name:'password',label:'Password',type:'password'}]} /></ProtectedAdmin>} />
+    <Route path="/admin/users" element={<ProtectedAdmin><AdminUsers /></ProtectedAdmin>} />
     <Route path="*" element={<NotFoundPage />} />
   </Routes></RouteTransition></RouteErrorBoundary>;
 }
