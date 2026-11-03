@@ -24,4 +24,6 @@ To point the React app at another API location, create `frontend/.env.local`:
 VITE_API_BASE_URL=http://localhost/your-path/LavaLust/public/api
 ```
 
+Production builds use `https://sakaylocal-backend.onrender.com/api` by default. Set `VITE_API_BASE_URL` in the frontend hosting environment to override it.
+
 The public terminals homepage and terminals page use the same active records returned by `/api/terminals`; this keeps admin changes synchronized with what users see. Users can filter by municipality/city and barangay, and the selected location is stored in the URL as `?city=...&barangay=...` so it survives refresh and can be shared. Terminal creation, route origin/destination selection, public route search, and report location selection all use cascading municipality/city → barangay → terminal choices. The Admin location directory is selection-first instead of rendering the entire province in one long page, while terminal forms use the same SQL-managed locations through dropdowns. If there are no active records, the UI shows an empty state instead of displaying stale demo records.

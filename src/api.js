@@ -1,4 +1,7 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost/Finalproject_Transports/LavaLust/public/api';
+const LOCAL_API_BASE = 'http://localhost/Finalproject_Transports/LavaLust/public/api';
+const PRODUCTION_API_BASE = 'https://sakaylocal-backend.onrender.com/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL
+  || (import.meta.env.DEV ? LOCAL_API_BASE : PRODUCTION_API_BASE);
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -7,10 +10,15 @@ async function request(path, options = {}) {
   } else if (typeof options.body === 'string') {
     headers['Content-Type'] = 'application/json;charset=UTF-8';
   }
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error(`Could not reach the SakayLokal API. Check your internet connection and confirm the API is available at ${API_BASE}.`);
+  }
   const responseText = await response.text();
   let payload = null;
   if (responseText) {
