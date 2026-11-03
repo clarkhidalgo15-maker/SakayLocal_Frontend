@@ -730,13 +730,17 @@ function Login() {
     const form = new FormData(event.currentTarget);
     const formElement = event.currentTarget;
     try {
-      await register({ full_name: form.get('full_name'), email: form.get('email'), phone: form.get('phone'), password: form.get('passenger_password') });
-      setRegistered('Account created. You can now log in.');
+      const result = await register({ full_name: form.get('full_name'), email: form.get('email'), phone: form.get('phone'), password: form.get('passenger_password') });
+      const welcomeEmailSent = result.data?.email_sent === true;
+      const successMessage = welcomeEmailSent
+        ? 'Account created. Welcome email sent.'
+        : 'Account created, but the welcome email could not be sent. Please check the server email settings.';
+      setRegistered(successMessage);
       if (formElement && typeof formElement.reset === 'function') {
         formElement.reset();
       }
       setShowRegister(false);
-      popUps.showPopUp({ kind: 'success', title: 'Account created', message: 'You can now log in with your email and password.' });
+      popUps.showPopUp({ kind: welcomeEmailSent ? 'success' : 'warning', title: 'Account created', message: welcomeEmailSent ? 'Welcome email sent. You can now log in.' : successMessage });
     } catch (exception) {
       const message = exception.message || 'Registration failed. That email may already be registered.';
       setRegistrationError(message);
