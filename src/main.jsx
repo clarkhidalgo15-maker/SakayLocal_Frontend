@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CircleMarker, MapContainer, Marker, Popup, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
@@ -882,14 +882,107 @@ function PasswordChangeForm({ changePassword, storageKey }) {
   return <section className={`password-change-form ${isOpen ? 'is-open' : ''}`}>{!isOpen ? <button type="button" className="password-change-toggle" onClick={() => setIsOpen(true)}>Change password</button> : <form className="password-change-panel" onSubmit={submit}><div className="password-change-fields"><h2>Change password</h2><p>Enter your current password before choosing a new one.</p></div>{error && <p className="error" role="alert">{error}</p>}<div className="form-grid"><label className="wide">Current password<input type="password" autoComplete="current-password" value={values.current_password} onChange={event => setValues({ ...values, current_password: event.target.value })} required /></label><label>New password<input type="password" autoComplete="new-password" minLength="6" value={values.new_password} onChange={event => setValues({ ...values, new_password: event.target.value })} required /></label><label>Confirm new password<input type="password" autoComplete="new-password" minLength="6" value={values.confirm_password} onChange={event => setValues({ ...values, confirm_password: event.target.value })} required /></label></div><div className="account-form-actions"><button className="button yellow" disabled={saving}>{saving ? 'Changing password...' : 'Save new password'}</button><button type="button" className="button outline" disabled={saving} onClick={() => { setError(''); setValues({ current_password: '', new_password: '', confirm_password: '' }); setIsOpen(false); }}>Cancel</button></div></form>}</section>;
 }
 
+function startOfWeek(date) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return start;
+}
+
+function dateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function buildReportSeries(reports, period, now = new Date()) {
+  const buckets = [];
+  if (period === 'week') {
+    const currentWeek = startOfWeek(now);
+    for (let offset = 7; offset >= 0; offset -= 1) {
+      const start = new Date(currentWeek);
+      start.setDate(start.getDate() - offset * 7);
+      buckets.push({
+        key: dateKey(start),
+        label: start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        count: 0,
+      });
+    }
+  } else if (period === 'year') {
+    for (let offset = 4; offset >= 0; offset -= 1) {
+      const year = now.getFullYear() - offset;
+      buckets.push({ key: String(year), label: String(year), count: 0 });
+    }
+  } else {
+    for (let offset = 11; offset >= 0; offset -= 1) {
+      const month = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      buckets.push({
+        key: `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`,
+        label: month.toLocaleDateString('en-US', { month: 'short' }),
+        count: 0,
+      });
+    }
+  }
+
+  const counts = new Map(buckets.map(bucket => [bucket.key, bucket]));
+  reports.forEach(report => {
+    if (!report.created_at) return;
+    const rawDate = String(report.created_at);
+    const createdAt = new Date(rawDate.includes('T') ? rawDate : rawDate.replace(' ', 'T'));
+    if (Number.isNaN(createdAt.getTime())) return;
+    const key = period === 'week'
+      ? dateKey(startOfWeek(createdAt))
+      : period === 'year'
+        ? String(createdAt.getFullYear())
+        : `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}`;
+    const bucket = counts.get(key);
+    if (bucket) bucket.count += 1;
+  });
+  return buckets;
+}
+
+function ReportTrendChart({ series, period }) {
+  const chart = { width: 720, height: 280, left: 48, right: 16, top: 24, bottom: 220 };
+  const plotWidth = chart.width - chart.left - chart.right;
+  const plotHeight = chart.bottom - chart.top;
+  const maxCount = Math.max(0, ...series.map(point => point.count));
+  const maxValue = Math.max(4, Math.ceil(maxCount / 4) * 4);
+  const step = plotWidth / series.length;
+  const barWidth = Math.min(36, step * 0.56);
+
+  return <div className="report-chart" role="img" aria-label={`Reports per ${period}, showing ${series.reduce((sum, point) => sum + point.count, 0)} reports`}>
+    <svg viewBox={`0 0 ${chart.width} ${chart.height}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      {[0, 1, 2, 3, 4].map(tick => {
+        const y = chart.bottom - (plotHeight * tick) / 4;
+        return <g key={tick}>
+          <line x1={chart.left} y1={y} x2={chart.width - chart.right} y2={y} className="report-chart-gridline" />
+          <text x={chart.left - 10} y={y + 4} textAnchor="end" className="report-chart-axis-label">{Math.round((maxValue * tick) / 4)}</text>
+        </g>;
+      })}
+      {series.map((point, index) => {
+        const height = (point.count / maxValue) * plotHeight;
+        const x = chart.left + step * index + (step - barWidth) / 2;
+        const y = chart.bottom - height;
+        return <g key={point.key}>
+          <rect x={x} y={y} width={barWidth} height={Math.max(point.count ? 3 : 0, height)} rx="6" className="report-chart-bar">
+            <title>{point.label}: {point.count} {point.count === 1 ? 'report' : 'reports'}</title>
+          </rect>
+          <text x={chart.left + step * index + step / 2} y={chart.bottom + 27} textAnchor="middle" className="report-chart-axis-label">{point.label}</text>
+        </g>;
+      })}
+    </svg>
+    <p className="report-chart-note">Report submissions by {period === 'week' ? 'week' : period === 'year' ? 'year' : 'month'}</p>
+  </div>;
+}
+
 function AdminReports() {
   const [reports, setReports] = useState([]);
+  const [chartPeriod, setChartPeriod] = useState('month');
   const [editingReport, setEditingReport] = useState(null);
   const [reportEdits, setReportEdits] = useState({});
   const [savingReport, setSavingReport] = useState(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const popUps = usePopUps();
+  const account = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
+  const reportSeries = useMemo(() => buildReportSeries(reports, chartPeriod), [reports, chartPeriod]);
   const load = () => { setLoading(true); adminRequest('reports').then(result => setReports(result.data)).catch(error => { setMessage(error.message); popUps.showPopUp({ kind: 'error', title: 'Could not load reports', message: error.message }); }).finally(() => setLoading(false)); };
   useEffect(() => { load(); }, []);
   function startEditing(report) {
@@ -926,7 +1019,10 @@ function AdminReports() {
       setSavingReport(null);
     }
   }
-  return <AdminLayout><main className="admin-main"><div className="title-row"><h1>Manage reports</h1><span className="admin-pill">{reports.length} reports</span></div>{message && <p className="error" role="alert">{message}</p>}{loading ? <Loading label="Loading reports..." /> : <div className="card admin-list">{reports.map(report => {
+  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>Manage reports</h1><p className="lead">Review passenger reports and track incoming submissions.</p></div><span className="admin-pill">{reports.length} reports</span></div>{message && <p className="error" role="alert">{message}</p>}{account?.role === 'admin' && <section className="card report-trend-card">
+    <div className="report-chart-heading"><div><span className="eyebrow">REPORT ANALYTICS</span><h2>Submission trends</h2><p>Compare the number of reports received over time.</p></div><label className="report-chart-period">View by<select value={chartPeriod} onChange={event => setChartPeriod(event.target.value)}><option value="week">Week · last 8 weeks</option><option value="month">Month · last 12 months</option><option value="year">Year · last 5 years</option></select></label></div>
+    {loading ? <Loading label="Loading report trends..." /> : reports.length ? <ReportTrendChart series={reportSeries} period={chartPeriod} /> : <p className="report-chart-empty">No report data is available to chart yet.</p>}
+  </section>}{loading ? <Loading label="Loading reports..." /> : <div className="card admin-list">{reports.map(report => {
     const isEditing = editingReport === report.id;
     const edits = reportEdits[report.id] || { status: report.status, admin_remarks: report.admin_remarks || '' };
     const isSaving = savingReport === report.id;
@@ -1197,7 +1293,10 @@ function Admin() {
     }
     return () => { active = false; };
   }, []);
-  const counts = ['submitted', 'in_progress', 'resolved'];
+  const pendingCount = reports.filter(report => report.status === 'submitted' || report.status === 'under_review').length;
+  const progressCount = reports.filter(report => report.status === 'in_progress').length;
+  const resolvedCount = reports.filter(report => report.status === 'resolved').length;
+  const reportTypeCount = type => reports.filter(report => report.report_type === type).length;
   return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>Dashboard</h1><p className="lead">Welcome, {account?.full_name || 'Administrator'}.</p></div><span className="admin-pill">{account?.role === 'staff' ? `Staff · ${account.assigned_city || 'Municipality not assigned'}` : `Admin · ${account?.full_name || 'Administrator'}`}</span></div>
     {account?.role === 'admin' && <section className="card submissions" aria-live="polite">
       <div className="title-row"><h2>Routes awaiting approval</h2><span className="admin-pill">{pendingRoutesLoading ? 'Checking...' : pendingRouteCount}</span></div>
@@ -1205,7 +1304,21 @@ function Admin() {
         ? <><p>{pendingRouteCount} staff-submitted {pendingRouteCount === 1 ? 'route needs' : 'routes need'} your review.</p>{pendingRoutes.slice(0, 5).map(route => <div className="admin-record" key={route.id}><div><b>{route.name}</b><p>{route.vehicle} · {route.origin} to {route.destination}</p></div><span className="demo-badge">Needs approval</span></div>)}<Link className="button yellow small" to="/admin/routes?workflow_status=submitted">Review submitted routes</Link></>
         : <p>No routes are waiting for approval.</p>}
     </section>}
-    <div className="stats"><div className="stat yellow-border"><span>Pending</span><strong>{reports.filter(r => r.status === 'submitted' || r.status === 'under_review').length}</strong></div><div className="stat blue-border"><span>In progress</span><strong>{reports.filter(r => r.status === 'in_progress').length}</strong></div><div className="stat green-border"><span>Resolved</span><strong>{reports.filter(r => r.status === 'resolved').length}</strong></div><div className="stat dark-border"><span>Total reports</span><strong>{reports.length}</strong></div></div><div className="admin-grid"><div className="card"><h2>Reports by type</h2>{['complaint', 'incident', 'assistance', 'feedback'].map(type => <p key={type}>{type} <b className="bar orange" style={{width: `${Math.max(8, reports.filter(r => r.report_type === type).length * 12)}%`}} /> {reports.filter(r => r.report_type === type).length}</p>)}</div><div className="card"><h2>System status</h2><p>Live reports: {reports.length}</p><p>Database-backed admin CRUD is enabled.</p><Link className="button outline small" to="/admin/reports">Manage reports</Link></div></div><div className="card submissions"><h2>Recent submissions</h2>{reports.slice(0, 6).map(row => <p key={row.id}>{row.reference_code} · {row.report_type} · {row.subject} · <b>{row.status}</b><Link className="button outline small" to="/admin/reports">View</Link></p>)}{reports.length === 0 && <p>No reports submitted yet.</p>}</div></main></AdminLayout>;
+    <div className="stats dashboard-stats">
+      <div className="stat stat-pending"><span className="stat-icon" aria-hidden="true">!</span><div><span className="stat-label">Pending review</span><strong>{pendingCount}</strong><small>Awaiting admin action</small></div></div>
+      <div className="stat stat-progress"><span className="stat-icon" aria-hidden="true">↗</span><div><span className="stat-label">In progress</span><strong>{progressCount}</strong><small>Currently being handled</small></div></div>
+      <div className="stat stat-resolved"><span className="stat-icon" aria-hidden="true">✓</span><div><span className="stat-label">Resolved</span><strong>{resolvedCount}</strong><small>Successfully completed</small></div></div>
+      <div className="stat stat-total"><span className="stat-icon" aria-hidden="true">▤</span><div><span className="stat-label">Total reports</span><strong>{reports.length}</strong><small>All submitted reports</small></div></div>
+    </div>
+    <div className="admin-grid">
+      <div className="card dashboard-breakdown"><h2>Reports by type</h2><p className="dashboard-card-note">A quick view of what passengers are reporting.</p>{['complaint', 'incident', 'assistance', 'feedback'].map(type => {
+        const count = reportTypeCount(type);
+        const percentage = reports.length ? Math.max(4, (count / reports.length) * 100) : 0;
+        return <div className="report-type-row" key={type}><div><span>{type}</span><b>{count}</b></div><span className="report-type-track"><i style={{ width: `${percentage}%` }} /></span></div>;
+      })}</div>
+      <div className="card dashboard-system"><span className="eyebrow">SAKAYLOKAL OVERVIEW</span><h2>Report management</h2><p>Monitor incoming passenger concerns and keep every report moving toward resolution.</p><div className="system-summary"><span><b>{reports.length}</b> reports</span><span><b>{pendingCount}</b> need follow-up</span></div><Link className="button yellow small" to="/admin/reports">Manage reports</Link></div>
+    </div>
+    <div className="card submissions"><div className="section-heading"><div><h2>Recent submissions</h2><p>Latest reports from passengers.</p></div><Link className="button outline small" to="/admin/reports">View all</Link></div>{reports.slice(0, 6).map(row => <div className="recent-report-row" key={row.id}><div><b>{row.reference_code} · {row.subject}</b><span>{row.report_type} · {row.contact_name}</span></div><span className={`report-status status-${row.status}`}>{row.status.replace('_', ' ')}</span></div>)}{reports.length === 0 && <p>No reports submitted yet.</p>}</div></main></AdminLayout>;
 }
 
 function AdminProfile() {
