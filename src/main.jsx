@@ -1266,7 +1266,7 @@ function AdminLayout({ children }) {
 }
 
 function Admin() {
-  const [reports, setReports] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
   const [pendingRoutes, setPendingRoutes] = useState([]);
   const [pendingRouteCount, setPendingRouteCount] = useState(0);
   const [pendingRoutesLoading, setPendingRoutesLoading] = useState(true);
@@ -1274,8 +1274,8 @@ function Admin() {
   const account = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
   useEffect(() => {
     let active = true;
-    adminRequest('reports')
-      .then(result => { if (active) setReports(result.data || []); })
+    adminRequest('dashboard')
+      .then(result => { if (active) setDashboard(result.data); })
       .catch(error => { if (active) popUps.showPopUp({ kind: 'error', title: 'Could not load the dashboard', message: error.message }); });
     if (account?.role === 'admin') {
       adminRequest('routes?workflow_status=submitted&page_size=50')
@@ -1293,11 +1293,13 @@ function Admin() {
     }
     return () => { active = false; };
   }, []);
-  const pendingCount = reports.filter(report => report.status === 'submitted' || report.status === 'under_review').length;
-  const progressCount = reports.filter(report => report.status === 'in_progress').length;
-  const resolvedCount = reports.filter(report => report.status === 'resolved').length;
-  const reportTypeCount = type => reports.filter(report => report.report_type === type).length;
-  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>Dashboard</h1><p className="lead">Welcome, {account?.full_name || 'Administrator'}.</p></div><span className="admin-pill">{account?.role === 'staff' ? `Staff · ${account.assigned_city || 'Municipality not assigned'}` : `Admin · ${account?.full_name || 'Administrator'}`}</span></div>
+  const pendingCount = Number(dashboard?.pending) || 0;
+  const progressCount = Number(dashboard?.in_progress) || 0;
+  const resolvedCount = Number(dashboard?.resolved) || 0;
+  const reportTotal = Number(dashboard?.total) || 0;
+  const reportTypeCount = type => Number(dashboard?.by_type?.[type]) || 0;
+  const recentReports = dashboard?.recent || [];
+  return <AdminLayout><main className="admin-main"><div className="title-row"><div><h1>Dashboard</h1><p className="lead">Welcome, {account?.full_name || 'Administrator'}.</p></div><div className="dashboard-actions"><span className="admin-pill">{account?.role === 'staff' ? `Staff · ${account.assigned_city || 'Municipality not assigned'}` : `Admin · ${account?.full_name || 'Administrator'}`}</span><button type="button" className="button outline small dashboard-print-button" onClick={() => window.print()} disabled={!dashboard || pendingRoutesLoading}>Print dashboard</button></div></div>
     {account?.role === 'admin' && <section className="card submissions" aria-live="polite">
       <div className="title-row"><h2>Routes awaiting approval</h2><span className="admin-pill">{pendingRoutesLoading ? 'Checking...' : pendingRouteCount}</span></div>
       {pendingRoutesLoading ? <Loading label="Checking routes awaiting approval..." /> : pendingRouteCount > 0
@@ -1308,17 +1310,17 @@ function Admin() {
       <div className="stat stat-pending"><span className="stat-icon" aria-hidden="true">!</span><div><span className="stat-label">Pending review</span><strong>{pendingCount}</strong><small>Awaiting admin action</small></div></div>
       <div className="stat stat-progress"><span className="stat-icon" aria-hidden="true">↗</span><div><span className="stat-label">In progress</span><strong>{progressCount}</strong><small>Currently being handled</small></div></div>
       <div className="stat stat-resolved"><span className="stat-icon" aria-hidden="true">✓</span><div><span className="stat-label">Resolved</span><strong>{resolvedCount}</strong><small>Successfully completed</small></div></div>
-      <div className="stat stat-total"><span className="stat-icon" aria-hidden="true">▤</span><div><span className="stat-label">Total reports</span><strong>{reports.length}</strong><small>All submitted reports</small></div></div>
+      <div className="stat stat-total"><span className="stat-icon" aria-hidden="true">▤</span><div><span className="stat-label">Total reports</span><strong>{reportTotal}</strong><small>All submitted reports</small></div></div>
     </div>
     <div className="admin-grid">
       <div className="card dashboard-breakdown"><h2>Reports by type</h2><p className="dashboard-card-note">A quick view of what passengers are reporting.</p>{['complaint', 'incident', 'assistance', 'feedback'].map(type => {
         const count = reportTypeCount(type);
-        const percentage = reports.length ? Math.max(4, (count / reports.length) * 100) : 0;
+        const percentage = reportTotal ? Math.max(4, (count / reportTotal) * 100) : 0;
         return <div className="report-type-row" key={type}><div><span>{type}</span><b>{count}</b></div><span className="report-type-track"><i style={{ width: `${percentage}%` }} /></span></div>;
       })}</div>
-      <div className="card dashboard-system"><span className="eyebrow">SAKAYLOKAL OVERVIEW</span><h2>Report management</h2><p>Monitor incoming passenger concerns and keep every report moving toward resolution.</p><div className="system-summary"><span><b>{reports.length}</b> reports</span><span><b>{pendingCount}</b> need follow-up</span></div><Link className="button yellow small" to="/admin/reports">Manage reports</Link></div>
+      <div className="card dashboard-system"><span className="eyebrow">SAKAYLOKAL OVERVIEW</span><h2>Report management</h2><p>Monitor incoming passenger concerns and keep every report moving toward resolution.</p><div className="system-summary"><span><b>{reportTotal}</b> reports</span><span><b>{pendingCount}</b> need follow-up</span></div><Link className="button yellow small" to="/admin/reports">Manage reports</Link></div>
     </div>
-    <div className="card submissions"><div className="section-heading"><div><h2>Recent submissions</h2><p>Latest reports from passengers.</p></div><Link className="button outline small" to="/admin/reports">View all</Link></div>{reports.slice(0, 6).map(row => <div className="recent-report-row" key={row.id}><div><b>{row.reference_code} · {row.subject}</b><span>{row.report_type} · {row.contact_name}</span></div><span className={`report-status status-${row.status}`}>{row.status.replace('_', ' ')}</span></div>)}{reports.length === 0 && <p>No reports submitted yet.</p>}</div></main></AdminLayout>;
+    <div className="card submissions"><div className="section-heading"><div><h2>Recent submissions</h2><p>Latest reports from passengers.</p></div><Link className="button outline small" to="/admin/reports">View all</Link></div>{recentReports.map(row => <div className="recent-report-row" key={row.id}><div><b>{row.reference_code} · {row.subject}</b><span>{row.report_type} · {row.contact_name}</span></div><span className={`report-status status-${row.status}`}>{row.status.replace('_', ' ')}</span></div>)}{dashboard && reportTotal === 0 && <p>No reports submitted yet.</p>}</div></main></AdminLayout>;
 }
 
 function AdminProfile() {
@@ -1475,6 +1477,11 @@ function AdminTerminals() {
   const permanentlyDelete = async item => { if (!await popUps.confirmAction({ title: 'Delete this terminal permanently?', message: 'This cannot be undone. Route links will be removed; reports and ratings will remain without a terminal link.', confirmLabel: 'Yes, delete permanently', danger: true })) return; try { await adminRequest('terminals', 'POST', { id: item.id, action: 'permanent_delete' }); setPendingAction(null); setMessage('Terminal deleted permanently.'); load(); } catch (error) { popUps.showPopUp({ kind: 'error', title: 'Could not delete the terminal', message: error.message }); } };
   const editTerminal = item => setForm(item);
   const selectedArea = visibleAreas.find(area => String(area.id) === String(form.area_id));
+  const locationCity = normalizePlace(pendingLocation?.found.city);
+  const locationCityAreas = locationCity
+    ? visibleAreas.filter(area => normalizePlace(area.city) === locationCity)
+    : [];
+  const locationAreaOptions = locationCityAreas.length ? locationCityAreas : visibleAreas;
   const [picking, setPicking] = useState(false);
   const locationRequest = useRef(null);
   const pickLocation = async (latitude, longitude) => {
@@ -1542,6 +1549,7 @@ function AdminTerminals() {
           <h2>{form.id ? 'Edit terminal' : 'Add terminal'}</h2>
           {isUnassignedStaff ? <p className="inline-warning" role="alert">Your account is not assigned to a municipality. Ask an administrator to assign one before adding terminals.</p> : <p className="field-help">Tap a road on the map to automatically set the municipality and barangay. First tap zooms in; tap the road again to place the pin.</p>}
           <p className="field-help" role="status">Selected location: {selectedArea ? `${selectedArea.name}, ${selectedArea.city}` : 'Tap a verified road on the map to select a barangay before adding.'}</p>
+          {pendingLocation && <label>Barangay<select value={form.area_id} onChange={event => { setForm(current => ({ ...current, area_id: event.target.value })); setMessage(''); }} required><option value="">Select the barangay for this pinned road</option>{locationAreaOptions.map(area => <option key={area.id} value={area.id}>{area.name} · {area.city}</option>)}</select><small className="field-help">If the map lookup could not identify the barangay, choose the correct one for this verified road location.</small></label>}
           <label>Terminal name<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} maxLength="150" required /></label>
           <label>Address<input value={form.address} onChange={event => setForm({ ...form, address: event.target.value })} maxLength="255" required /></label>
           <label>Landmark<input value={form.landmark || ''} onChange={event => setForm({ ...form, landmark: event.target.value })} maxLength="255" /></label>

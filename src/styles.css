@@ -1951,3 +1951,56 @@ button.chip-button,
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.dashboard-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  body,
+  .admin-shell,
+  .admin-main {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .admin-shell {
+    display: block !important;
+    min-height: 0 !important;
+  }
+
+  .admin-nav,
+  .admin-main .button,
+  .mobile-nav-toggle,
+  .scroll-top {
+    display: none !important;
+  }
+
+  .admin-main {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .admin-main .title-row {
+    border-color: #bbb !important;
+  }
+
+  .dashboard-stats,
+  .admin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .admin-main .card,
+  .dashboard-stats .stat {
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+}

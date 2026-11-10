@@ -5,6 +5,11 @@
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
 const OSRM_URL = 'https://router.project-osrm.org';
 const MAX_SNAP_DISTANCE_METERS = 80;
+// Keep official area names; scope verified OSM spellings to their municipality.
+const OSM_AREA_NAME_ALIASES = {
+  baco: { lumangbayan: 'lumang bayan' },
+  calapan: { 'puting tubig': 'putingtubig' },
+};
 export const orientalMindoroCenter = [13.2, 121.2];
 export const orientalMindoroBounds = [[12.1092496, 120.8006707], [13.5808426, 121.6971031]];
 
@@ -147,10 +152,13 @@ export function findMatchingArea(areas, city, barangay) {
 
   for (const candidate of candidateValues) {
     const normalizedCandidate = normalizePlace(candidate);
+    const alias = OSM_AREA_NAME_ALIASES[normalizedCity]?.[normalizedCandidate];
     const matches = areas.filter(area => {
       const areaName = normalizePlace(area.name);
       const cityMatches = !cityExists || areaCityMatches(area);
-      return (areaName === normalizedCandidate || areaName === normalizePlace(candidate.replace(/^\s*(barangay|brgy)\.?\s*/i, '')))
+      return (areaName === normalizedCandidate
+        || areaName === normalizePlace(candidate.replace(/^\s*(barangay|brgy)\.?\s*/i, ''))
+        || (alias && areaName === alias))
         && cityMatches;
     });
     if (matches.length === 1) return matches[0];
