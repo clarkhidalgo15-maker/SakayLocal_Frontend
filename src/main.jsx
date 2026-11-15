@@ -1348,74 +1348,8 @@ function Admin() {
   const reportTotal = Number(dashboard?.total) || 0;
   const reportTypeCount = type => Number(dashboard?.by_type?.[type]) || 0;
   const recentReports = dashboard?.recent || [];
-  const generatedAt = new Date();
-  const reportTypes = ['complaint', 'incident', 'assistance', 'feedback'];
   return <AdminLayout><main className="admin-main dashboard-page">
-    <section className="dashboard-print-report" aria-label="Printable dashboard report">
-      <header className="dashboard-print-header">
-        <div className="dashboard-print-brand-mark" aria-hidden="true">SL</div>
-        <div className="dashboard-print-heading">
-          <span className="eyebrow">SAKAYLOKAL · ADMINISTRATION</span>
-          <h1>Dashboard Summary</h1>
-          <p>Passenger reports and operational overview</p>
-        </div>
-        <div className="dashboard-print-meta">
-          <span>Generated</span>
-          <strong>{generatedAt.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
-          <span>Prepared by</span>
-          <strong>{account?.full_name || 'Administrator'}</strong>
-        </div>
-      </header>
-      <div className="dashboard-print-context">
-        <span>ROLE</span><strong>{account?.role === 'staff' ? 'Staff' : 'Administrator'}</strong>
-        {account?.role === 'staff' && <><span>ASSIGNED AREA</span><strong>{account.assigned_city || 'Not assigned'}</strong></>}
-        <span>REPORTS COVERED</span><strong>All reports in your authorized dashboard</strong>
-      </div>
-      <section className="dashboard-print-section">
-        <h2>Report status</h2>
-        <div className="dashboard-print-kpis">
-          {[['Pending review', pendingCount], ['In progress', progressCount], ['Resolved', resolvedCount], ['Total reports', reportTotal]].map(([label, count]) => (
-            <div className="dashboard-print-kpi" key={label}><span>{label}</span><strong>{count}</strong></div>
-          ))}
-        </div>
-      </section>
-      <section className="dashboard-print-section">
-        <h2>Reports by type</h2>
-        <table className="dashboard-print-table">
-          <thead><tr><th>Report type</th><th>Count</th><th>Share of total</th></tr></thead>
-          <tbody>{reportTypes.map(type => {
-            const count = reportTypeCount(type);
-            const share = reportTotal ? Math.round((count / reportTotal) * 100) : 0;
-            return <tr key={type}><td>{type[0].toUpperCase() + type.slice(1)}</td><td>{count}</td><td>{share}%</td></tr>;
-          })}</tbody>
-        </table>
-      </section>
-      <section className="dashboard-print-section">
-        <h2>Recent submissions <span>Latest {recentReports.length} reports available</span></h2>
-        <table className="dashboard-print-table">
-          <thead><tr><th>Reference</th><th>Subject</th><th>Type</th><th>Submitted by</th><th>Status</th></tr></thead>
-          <tbody>{recentReports.length ? recentReports.map(report => (
-            <tr key={report.id}>
-              <td>{report.reference_code}</td><td>{report.subject}</td><td>{report.report_type}</td>
-              <td>{report.contact_name}</td><td>{report.status.replaceAll('_', ' ')}</td>
-            </tr>
-          )) : <tr><td colSpan="5">No reports submitted yet.</td></tr>}</tbody>
-        </table>
-      </section>
-      {account?.role === 'admin' && <section className="dashboard-print-section">
-        <h2>Routes awaiting approval <span>{pendingRouteCount} total</span></h2>
-        <table className="dashboard-print-table">
-          <thead><tr><th>Route</th><th>Origin to destination</th><th>Vehicle</th><th>Review status</th></tr></thead>
-          <tbody>{pendingRoutes.length ? pendingRoutes.slice(0, 5).map(route => (
-            <tr key={route.id}><td>{route.name}</td><td>{route.origin} to {route.destination}</td><td>{route.vehicle}</td><td>Needs approval</td></tr>
-          )) : <tr><td colSpan="4">No routes are awaiting approval.</td></tr>}</tbody>
-        </table>
-        {pendingRouteCount > 5 && <p className="dashboard-print-note">Showing the first 5 of {pendingRouteCount} routes awaiting approval.</p>}
-      </section>}
-      <footer className="dashboard-print-footer"><strong>SAKAYLOKAL</strong><span>Oriental Mindoro transport service report</span></footer>
-    </section>
-    <div className="dashboard-screen">
-    <div className="title-row"><div><h1>Dashboard</h1><p className="lead">Welcome, {account?.full_name || 'Administrator'}.</p></div><div className="dashboard-actions"><span className="admin-pill">{account?.role === 'staff' ? `Staff · ${account.assigned_city || 'Municipality not assigned'}` : `Admin · ${account?.full_name || 'Administrator'}`}</span><button type="button" className="button outline small dashboard-print-button" onClick={() => window.print()} disabled={!dashboard || pendingRoutesLoading}>Print dashboard</button><button type="button" className="button yellow small dashboard-docx-button" onClick={exportDashboard} disabled={!dashboard || pendingRoutesLoading || exportingDashboard}>{exportingDashboard ? 'Creating DOCX...' : 'Download DOCX'}</button></div></div>
+    <div className="title-row"><div><h1>Dashboard</h1><p className="lead">Welcome, {account?.full_name || 'Administrator'}.</p></div><div className="dashboard-actions"><span className="admin-pill">{account?.role === 'staff' ? `Staff · ${account.assigned_city || 'Municipality not assigned'}` : `Admin · ${account?.full_name || 'Administrator'}`}</span><button type="button" className="button yellow small dashboard-docx-button" onClick={exportDashboard} disabled={!dashboard || pendingRoutesLoading || exportingDashboard}>{exportingDashboard ? 'Creating DOCX...' : 'Download DOCX'}</button></div></div>
     {account?.role === 'admin' && <section className="card submissions" aria-live="polite">
       <div className="title-row"><h2>Routes awaiting approval</h2><span className="admin-pill">{pendingRoutesLoading ? 'Checking...' : pendingRouteCount}</span></div>
       {pendingRoutesLoading ? <Loading label="Checking routes awaiting approval..." /> : pendingRouteCount > 0
@@ -1437,7 +1371,6 @@ function Admin() {
       <div className="card dashboard-system"><span className="eyebrow">SAKAYLOKAL OVERVIEW</span><h2>Report management</h2><p>Monitor incoming passenger concerns and keep every report moving toward resolution.</p><div className="system-summary"><span><b>{reportTotal}</b> reports</span><span><b>{pendingCount}</b> need follow-up</span></div><Link className="button yellow small" to="/admin/reports">Manage reports</Link></div>
     </div>
     <div className="card submissions"><div className="section-heading"><div><h2>Recent submissions</h2><p>Latest reports from passengers.</p></div><Link className="button outline small" to="/admin/reports">View all</Link></div>{recentReports.map(row => <div className="recent-report-row" key={row.id}><div><b>{row.reference_code} · {row.subject}</b><span>{row.report_type} · {row.contact_name}</span></div><span className={`report-status status-${row.status}`}>{row.status.replace('_', ' ')}</span></div>)}{dashboard && reportTotal === 0 && <p>No reports submitted yet.</p>}</div>
-    </div>
   </main></AdminLayout>;
 }
 
