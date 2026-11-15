@@ -74,24 +74,58 @@
 }
 
 .route-result-wrapper {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   padding: 16px 20px;
 }
 
 .route-result-link-inner {
   position: relative;
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr) 120px;
+  grid-template-columns: 58px minmax(0, 1fr) minmax(105px, auto);
   align-items: center;
-  gap: 16px;
-  padding-bottom: 42px;
+  gap: 14px;
   color: inherit;
   text-decoration: none;
+  min-width: 0;
 }
 
-.route-result-link-inner strong {
+.route-result-link-inner > div {
+  min-width: 0;
+}
+
+.route-result-wrapper .route-result-link-inner > strong {
+  grid-column: auto;
+  min-width: 0;
   text-align: right;
-  font-size: 25px;
+  font-size: 22px;
+}
+
+.route-result-wrapper .route-result-arrow {
+  position: static;
+  grid-column: auto;
+  grid-row: auto;
+  color: var(--orange);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.route-result-wrapper > .favorite-toggle {
+  grid-column: 2;
+  grid-row: 1;
+  white-space: nowrap;
+}
+
+.route-result-link-inner h3 {
+  overflow-wrap: anywhere;
+}
+
+.route-result-link-inner p {
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
 }
 
 .route-detail-actions {
@@ -105,31 +139,40 @@
   justify-content: flex-end;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .saved-favorite-card,
   .inline-warning {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .route-result-link-inner {
-    grid-template-columns: 46px minmax(0, 1fr);
+  .route-result-wrapper {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .route-result-link-inner > strong,
-  .route-result-arrow {
+  .route-result-link-inner {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 10px 12px;
+  }
+
+  .route-result-wrapper .route-result-link-inner > strong {
     grid-column: 2;
     text-align: left;
-  }
-
-  .route-result-link-inner > strong {
     font-size: 20px;
   }
 
-  .route-result-wrapper .favorite-toggle {
-    margin-left: 62px;
+  .route-result-wrapper .route-result-arrow {
+    grid-column: 2;
   }
 
+  .route-result-wrapper > .favorite-toggle {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 700px) {
   .route-detail-actions {
     align-items: flex-end;
     flex-direction: column-reverse;

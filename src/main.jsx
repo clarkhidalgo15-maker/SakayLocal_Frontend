@@ -4,7 +4,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate,
 import { CircleMarker, MapContainer, Marker, Popup, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { getCommutePreferences, removeCommutePreferences, saveCommutePreferences } from './commutePreferences';
-import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, submitReport, updateAccount, verifyLoginOtp } from './api';
+import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, resendSignupOtp, submitReport, updateAccount, verifySignupOtp } from './api';
 import { clearSavedFavorites, getSavedFavorites, toggleSavedFavorite } from './savedFavorites';
 import './favorites.css';
 import { initScrollReveal, setDocumentTitle } from './reveal';
@@ -840,14 +840,22 @@ function Login() {
   const [loginError, setLoginError] = useState('');
   const [registrationError, setRegistrationError] = useState('');
   const [registered, setRegistered] = useState('');
+  const [signupDraft, setSignupDraft] = useState({ full_name: '', email: '', phone: '', password: '' });
   const [loginLoading, setLoginLoading] = useState(false);
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [otpChallenge, setOtpChallenge] = useState(null);
-  const [otpCode, setOtpCode] = useState('');
+  const [signupOtpLoading, setSignupOtpLoading] = useState(false);
+  const [signupChallenge, setSignupChallenge] = useState(null);
+  const [signupCode, setSignupCode] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [registrationLoading, setRegistrationLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
   const [registerPasswordVisible, setRegisterPasswordVisible] = useState(false);
+  useEffect(() => {
+    if (!signupChallenge || resendSeconds <= 0) return undefined;
+    const timer = window.setTimeout(() => setResendSeconds(seconds => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [signupChallenge, resendSeconds]);
   const finishLogin = account => {
     if (['admin', 'staff'].includes(account.role)) {
       localStorage.removeItem('sakaylokal_user');
@@ -866,13 +874,7 @@ function Login() {
     const form = new FormData(event.currentTarget);
     try {
       const result = await login(form.get('identifier'), form.get('password'));
-      if (result.data?.otp_required) {
-        setOtpCode('');
-        setOtpChallenge(result.data.challenge_token);
-        setLoginError('');
-      } else {
-        finishLogin(result.data);
-      }
+      finishLogin(result.data);
     } catch (exception) {
       const message = exception.message || 'The login request failed. Check Apache and the API URL.';
       setLoginError(message);
@@ -881,20 +883,50 @@ function Login() {
       setLoginLoading(false);
     }
   };
-  const handleOtpVerification = async event => {
+  const handleSignupOtpVerification = async event => {
     event.preventDefault();
-    setLoginError('');
-    setOtpLoading(true);
+    setRegistrationError('');
+    setSignupOtpLoading(true);
     const form = new FormData(event.currentTarget);
     try {
-      const result = await verifyLoginOtp(otpChallenge, form.get('otp'));
-      finishLogin(result.data);
+      const result = await verifySignupOtp(signupChallenge, form.get('otp'));
+      const welcomeEmailSent = result.data?.email_sent === true;
+      const successMessage = welcomeEmailSent
+        ? 'Account created and email verified. Welcome email sent. You can now log in.'
+        : 'Account created and email verified. You can now log in.';
+      setRegistered(successMessage);
+      setSignupChallenge(null);
+      setSignupCode('');
+      setSignupDraft({ full_name: '', email: '', phone: '', password: '' });
+      setShowRegister(false);
+      popUps.showPopUp({ kind: 'success', title: 'Account verified', message: successMessage });
     } catch (exception) {
       const message = exception.message || 'Could not verify the code. Please try again.';
-      setLoginError(message);
+      setRegistrationError(message);
       popUps.showPopUp({ kind: 'error', title: 'Verification failed', message });
     } finally {
-      setOtpLoading(false);
+      setSignupOtpLoading(false);
+    }
+  };
+  const handleSignupOtpResend = async () => {
+    if (!signupChallenge || resendLoading || resendSeconds > 0) return;
+    setRegistrationError('');
+    setResendLoading(true);
+    try {
+      await resendSignupOtp(signupChallenge);
+      setSignupCode('');
+      setResendSeconds(30);
+      popUps.showPopUp({ kind: 'success', title: 'New code sent', message: 'A new verification code has been sent to your email.' });
+    } catch (exception) {
+      const retryAfter = Number(exception.retry_after);
+      if (Number.isFinite(retryAfter) && retryAfter > 0) {
+        setResendSeconds(Math.min(30, Math.ceil(retryAfter)));
+      }
+      const message = exception.message || 'Could not resend the verification code. Please try again later.';
+      setRegistrationError(message);
+      popUps.showPopUp({ kind: 'error', title: 'Could not resend code', message });
+    } finally {
+      setResendLoading(false);
     }
   };
   const handleRegister = async event => {
@@ -903,19 +935,23 @@ function Login() {
     setRegistered('');
     setRegistrationLoading(true);
     const form = new FormData(event.currentTarget);
-    const formElement = event.currentTarget;
     try {
-      const result = await register({ full_name: form.get('full_name'), email: form.get('email'), phone: form.get('phone'), password: form.get('passenger_password') });
-      const welcomeEmailSent = result.data?.email_sent === true;
-      const successMessage = welcomeEmailSent
-        ? 'Account created. Welcome email sent.'
-        : 'Account created, but the welcome email could not be sent. Please check the server email settings.';
-      setRegistered(successMessage);
-      if (formElement && typeof formElement.reset === 'function') {
-        formElement.reset();
+      const draft = {
+        full_name: form.get('full_name'),
+        email: form.get('email'),
+        phone: form.get('phone'),
+        password: form.get('passenger_password'),
+      };
+      const result = await register(draft);
+      if (!result.data?.otp_required || !result.data?.challenge_token) {
+        throw new Error('The server did not start email verification. Please try again.');
       }
-      setShowRegister(false);
-      popUps.showPopUp({ kind: welcomeEmailSent ? 'success' : 'warning', title: 'Account created', message: welcomeEmailSent ? 'Welcome email sent. You can now log in.' : successMessage });
+      setRegistrationError('');
+      setSignupDraft(draft);
+      setSignupCode('');
+      setSignupChallenge(result.data.challenge_token);
+      setResendSeconds(30);
+      popUps.showPopUp({ kind: 'success', title: 'Verification code sent', message: 'Check your email and enter the six-digit code to finish creating your account.' });
     } catch (exception) {
       const message = exception.message || 'Registration failed. That email may already be registered.';
       setRegistrationError(message);
@@ -925,24 +961,25 @@ function Login() {
     }
   };
   return <><Header /><main className="auth-page"><div className="auth-intro"><span className="eyebrow auth-kicker">SAKAYLOKAL ACCOUNT</span><h1>Your trips,<br /><span className="accent-text">made easier.</span></h1><p>Log in to save your details, submit reports, and stay connected with transport services across Oriental Mindoro.</p><ul className="auth-benefits"><li><span className="checkmark">✓</span>Track your submitted reports</li><li><span className="checkmark">✓</span>Find terminals and routes faster</li><li><span className="checkmark">✓</span>One account for passengers and administrators</li></ul></div><div className="auth-panel">
-    {otpChallenge ? <form className="auth-card form auth-card" onSubmit={handleOtpVerification}>
-      <div className="auth-heading auth-heading-inline"><span className="eyebrow">VERIFY YOUR ACCOUNT</span></div>
-      <h1 className="auth-title">Enter your login code</h1>
-      <p className="auth-subtitle">We sent a six-digit code to the email address on your account. It expires in 10 minutes.</p>
-      <label>Verification code<input name="otp" type="tel" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" autoComplete="one-time-code" autoCapitalize="off" spellCheck="false" placeholder="000000" value={otpCode} onChange={event => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required disabled={otpLoading} /></label>
-      {loginError && <p className="error" role="alert">{loginError}</p>}
-      <button className="button green auth-submit" disabled={otpLoading}>{otpLoading ? <><span className="button-spinner" />Verifying...</> : 'Verify and log in'}</button>
-      <p className="auth-toggle-row"><span>Wrong account or code expired?</span><button type="button" className="text-link-button" disabled={otpLoading} onClick={() => { setOtpChallenge(null); setOtpCode(''); setLoginError(''); }}>Back to login</button></p>
+    {signupChallenge ? <form className="auth-card form auth-card" onSubmit={handleSignupOtpVerification}>
+      <div className="auth-heading auth-heading-inline"><span className="eyebrow">VERIFY YOUR EMAIL</span></div>
+      <h1 className="auth-title">Finish creating your account</h1>
+      <p className="auth-subtitle">We sent a six-digit code to the email address you entered. It expires in 10 minutes.</p>
+      <label>Verification code<input name="otp" type="tel" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" autoComplete="one-time-code" autoCapitalize="off" spellCheck="false" placeholder="000000" value={signupCode} onChange={event => setSignupCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required disabled={signupOtpLoading} /></label>
+      {registrationError && <p className="error" role="alert">{registrationError}</p>}
+      <button className="button green auth-submit" disabled={signupOtpLoading}>{signupOtpLoading ? <><span className="button-spinner" />Verifying...</> : 'Verify email and create account'}</button>
+      <p className="auth-toggle-row resend-code-row"><span>Didn't get a code?</span><button type="button" className="text-link-button" disabled={signupOtpLoading || resendLoading || resendSeconds > 0} onClick={handleSignupOtpResend}>{resendLoading ? 'Sending code...' : resendSeconds > 0 ? `Send code again in ${resendSeconds}s` : 'Send code again'}</button></p>
+      <p className="auth-toggle-row"><span>Need to correct your details?</span><button type="button" className="text-link-button" disabled={signupOtpLoading || resendLoading} onClick={() => { setSignupChallenge(null); setSignupCode(''); setRegistrationError(''); setResendSeconds(0); setShowRegister(true); }}>Back to sign up</button></p>
     </form> : showRegister ? <form className="auth-card form register-card" onSubmit={handleRegister}>
         <div className="auth-heading auth-heading-inline"><span className="eyebrow">NEW HERE?</span></div>
         <h1 className="auth-title">Create an account</h1>
         <p className="auth-subtitle">Register to continue and manage your transport account.</p>
         {registrationError && <p className="error" role="alert">{registrationError}</p>}
         <div className="form-grid">
-          <label className="wide">Full name<input name="full_name" placeholder="Juan Dela Cruz" required disabled={registrationLoading} /></label>
-          <label>Email<input name="email" type="email" placeholder="you@email.com" required disabled={registrationLoading} /></label>
-          <label>Phone<input name="phone" placeholder="09XX XXX XXXX" disabled={registrationLoading} /></label>
-          <label className="wide">Password<div className="password-field"><input name="passenger_password" type={registerPasswordVisible ? 'text' : 'password'} placeholder="At least 6 characters" minLength="6" required disabled={registrationLoading} /><button type="button" className="password-toggle" onClick={() => setRegisterPasswordVisible(value => !value)} aria-label={registerPasswordVisible ? 'Hide password' : 'Show password'}><PasswordToggleIcon visible={registerPasswordVisible} /></button></div></label>
+          <label className="wide">Full name<input name="full_name" value={signupDraft.full_name} onChange={event => setSignupDraft(draft => ({ ...draft, full_name: event.target.value }))} placeholder="Juan Dela Cruz" required disabled={registrationLoading} /></label>
+          <label>Email<input name="email" type="email" value={signupDraft.email} onChange={event => setSignupDraft(draft => ({ ...draft, email: event.target.value }))} placeholder="you@email.com" required disabled={registrationLoading} /></label>
+          <label>Phone<input name="phone" value={signupDraft.phone} onChange={event => setSignupDraft(draft => ({ ...draft, phone: event.target.value }))} placeholder="09XX XXX XXXX" disabled={registrationLoading} /></label>
+          <label className="wide">Password<div className="password-field"><input name="passenger_password" type={registerPasswordVisible ? 'text' : 'password'} value={signupDraft.password} onChange={event => setSignupDraft(draft => ({ ...draft, password: event.target.value }))} placeholder="At least 6 characters" minLength="6" required disabled={registrationLoading} /><button type="button" className="password-toggle" onClick={() => setRegisterPasswordVisible(value => !value)} aria-label={registerPasswordVisible ? 'Hide password' : 'Show password'}><PasswordToggleIcon visible={registerPasswordVisible} /></button></div></label>
         </div>
         <button className="button green auth-submit" disabled={registrationLoading}>{registrationLoading ? <><span className="button-spinner" />Creating...</> : 'Create account'}</button>
         <p className="auth-toggle-row"><span>Already have an account?</span><button type="button" className="text-link-button" onClick={() => { setShowRegister(false); setRegistered(''); setRegistrationError(''); }}>Sign in</button></p>

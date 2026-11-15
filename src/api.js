@@ -32,6 +32,7 @@ async function request(path, options = {}) {
     const detail = payload?.error || payload?.message || responseText;
     const error = new Error(detail || `API request failed with ${response.status}`);
     error.status = response.status;
+    error.retry_after = payload?.retry_after;
     throw error;
   }
   if (!payload) {
@@ -113,10 +114,17 @@ export function login(identifier, password) {
   return request('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) });
 }
 
-export function verifyLoginOtp(challengeToken, otp) {
-  return request('/auth/verify-login-otp', {
+export function verifySignupOtp(challengeToken, otp) {
+  return request('/auth/verify-signup-otp', {
     method: 'POST',
     body: JSON.stringify({ challenge_token: challengeToken, otp }),
+  });
+}
+
+export function resendSignupOtp(challengeToken) {
+  return request('/auth/resend-signup-otp', {
+    method: 'POST',
+    body: JSON.stringify({ challenge_token: challengeToken }),
   });
 }
 
