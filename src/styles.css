@@ -821,6 +821,53 @@ button.chip-button,
   margin-top: 28px;
 }
 
+.commute-section {
+  padding-top: 36px;
+}
+
+.commute-section .section-heading {
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.commute-section .section-heading h2 {
+  margin: 4px 0;
+}
+
+.commute-section .section-heading p {
+  margin: 4px 0 0;
+  color: var(--brand-muted);
+}
+
+.commute-actions,
+.commute-preference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.commute-preferences {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid rgba(17, 41, 59, 0.08);
+  border-radius: 18px;
+  background: #f7fafc;
+}
+
+.commute-preferences h2 {
+  margin: 0 0 6px;
+}
+
+.commute-preferences > p:not(.error) {
+  margin: 0 0 16px;
+  color: var(--brand-muted);
+}
+
+.commute-preferences .location-filter {
+  margin-top: 14px;
+}
+
 .feature-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

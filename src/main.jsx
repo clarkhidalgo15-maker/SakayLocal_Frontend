@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CircleMarker, MapContainer, Marker, Popup, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
+import { getCommutePreferences, removeCommutePreferences, saveCommutePreferences } from './commutePreferences';
 import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, submitReport, updateAccount, verifyLoginOtp } from './api';
 import { initScrollReveal, setDocumentTitle } from './reveal';
 import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
@@ -253,6 +254,17 @@ function TerminalCard({ terminal, compact = false }) {
 }
 
 function Home() {
+  const passenger = JSON.parse(localStorage.getItem('sakaylokal_user') || 'null');
+  const administrator = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
+  const isPassenger = passenger?.role === 'passenger' && !administrator?.access_token;
+  const [commute, setCommute] = useState(() => {
+    if (!isPassenger) return { location: null, error: '' };
+    try {
+      return { location: getCommutePreferences(passenger.user_id), error: '' };
+    } catch {
+      return { location: null, error: 'Your saved commute location could not be read. Update it in Account settings.' };
+    }
+  });
   const [query, setQuery] = useState('');
   const [items, setItems] = useState([]);
   const [routeItems, setRouteItems] = useState([]);
@@ -262,6 +274,17 @@ function Home() {
   const popUps = usePopUps();
   useEffect(() => { Promise.all([getTerminals(), getRoutes(), getAdvisories()]).then(([terminalResult, routeResult, advisoryResult]) => { setItems(terminalResult.data || []); setRouteItems(routeResult.data || []); setAdvisories(advisoryResult.data || []); }).catch(error => popUps.showPopUp({ kind: 'error', title: 'Could not load the home feed', message: error?.message || 'The transport service might be offline at the moment.' })).finally(() => setLoading(false)); }, []);
   const mapItems = items.map(item => ({ ...item, lat: Number(item.lat), lng: Number(item.lng), vehicles: item.vehicle_types ? item.vehicle_types.split(',').map(v => v.replace('_', ' ')) : [], codes: [] }));
+  const locationTerminals = commute.location
+    ? mapItems.filter(terminal => terminal.city === commute.location.city
+      && (!commute.location.area || terminal.area === commute.location.area))
+    : [];
+  const cityTerminals = commute.location
+    ? mapItems.filter(terminal => terminal.city === commute.location.city)
+    : [];
+  const personalizedTerminals = locationTerminals.length ? locationTerminals : cityTerminals;
+  const terminalSearch = commute.location
+    ? `/terminals?city=${encodeURIComponent(commute.location.city)}${commute.location.area ? `&barangay=${encodeURIComponent(commute.location.area)}` : ''}`
+    : '/terminals';
   const routesTracked = routeItems.length || 0;
   const commuterRating = (4.5 + (routesTracked % 5) * 0.1).toFixed(1);
   const averageWaitMinutes = Math.max(10, Math.min(30, Math.round(routesTracked / 2 || 15)));
@@ -270,7 +293,15 @@ function Home() {
     { value: `${commuterRating}/5`, label: 'commuter rating' },
     { value: `${averageWaitMinutes} min`, label: 'average wait' },
   ];
-  return <><Header /><main><section className="hero">  <div><span className="eyebrow hero-kicker">Your daily commute, simplified</span><h1>Find where to ride, and<br />what it costs.</h1><p>Plan your trip with reliable terminals, updated fares, and quick access to transport updates across Calapan City.</p><div className="hero-metrics" aria-label="Service highlights">{heroMetrics.map(metric => <div className="metric-tile" key={metric.label}><strong>{metric.value}</strong><span>{metric.label}</span></div>)}</div><form className="search-box" onSubmit={event => { event.preventDefault(); navigate(`/terminals${query ? `?q=${encodeURIComponent(query)}` : ''}`); }}><div className="tabs"><b>Find a terminal</b><Link to="/route-search">Route and fare</Link></div><div className="search-row"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Area or barangay, e.g. Poblacion" /><button className="button yellow">Show terminals</button></div><div className="popular"><span>Popular:</span>{['Jeepney', 'Bus', 'Tricycle', 'UV Van'].map(vehicle => <button type="button" className="chip chip-button" key={vehicle} onClick={() => { setQuery(vehicle); navigate(`/terminals?q=${vehicle}`); }}>● {vehicle}</button>)}</div></form></div><MapPanel terminalItems={mapItems} /></section><section className="feature-strip"><div className="feature-card"><span className="feature-icon">⚡</span><div><h3>Fast route lookup</h3><p>Find the quickest terminal or fare route in seconds.</p></div></div><div className="feature-card"><span className="feature-icon">✓</span><div><h3>Verified stops</h3><p>Check reliable terminals and schedules across the city.</p></div></div><div className="feature-card"><span className="feature-icon">📍</span><div><h3>Live reporting</h3><p>Report issues and track public transport updates easily.</p></div></div></section><section className="section"><div className="section-heading"><h2>Terminals in Calapan City</h2><Link to="/terminals">See all terminals</Link></div>{loading ? <Loading label="Loading terminals..." /> : <div className="grid three">{mapItems.slice(0, 3).map(t => <TerminalCard key={t.id} terminal={t} compact />)}</div>}{!loading && items.length === 0 && <div className="card"><h3>No published terminals yet</h3><p>Transport records will appear here after a municipality staff member submits them and the super admin publishes them.</p><Link className="button outline small" to="/login">Admin login</Link></div>}<div className="home-lower"><div><h2>Something went wrong on your trip?</h2><div className="grid two"><Link className="card action-card" to="/reports/create?type=complaint"><h3>Complaint</h3><p>Overcharging, rude service, long waits.</p></Link><Link className="card action-card" to="/reports/create?type=incident"><h3>Incident report</h3><p>Accidents, breakdowns, safety concerns.</p></Link><Link className="card action-card" to="/reports/create?type=assistance"><h3>Assistance request</h3><p>Need help with a trip or a terminal.</p></Link><Link className="card action-card" to="/reports/create?type=feedback"><h3>Rate a service</h3><p>Tell others how a route or terminal is.</p></Link></div></div><aside><h2>Advisories</h2>{advisories.length ? advisories.slice(0, 3).map(advisory => <div className="card advisory" key={advisory.id}><b>{advisory.title}</b><p>{advisory.body}</p><span className="advisory-type">{advisory.advisory_type}</span></div>) : <div className="card advisory"><b>No current advisories</b><p>Check back for the latest route updates and announcements.</p></div>}<Link className="card weather advisory-link" to="https://open-meteo.com/" target="_blank" rel="noreferrer"><div><b>Calapan City weather</b><p>Open the weather service for current conditions</p></div><strong>☀</strong></Link></aside></div></section></main><Footer /></>;
+  return <><Header /><main><section className="hero">  <div><span className="eyebrow hero-kicker">Your daily commute, simplified</span><h1>Find where to ride, and<br />what it costs.</h1><p>Plan your trip with reliable terminals, updated fares, and quick access to transport updates across Calapan City.</p><div className="hero-metrics" aria-label="Service highlights">{heroMetrics.map(metric => <div className="metric-tile" key={metric.label}><strong>{metric.value}</strong><span>{metric.label}</span></div>)}</div><form className="search-box" onSubmit={event => { event.preventDefault(); navigate(`/terminals${query ? `?q=${encodeURIComponent(query)}` : ''}`); }}><div className="tabs"><b>Find a terminal</b><Link to="/route-search">Route and fare</Link></div><div className="search-row"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Area or barangay, e.g. Poblacion" /><button className="button yellow">Show terminals</button></div><div className="popular"><span>Popular:</span>{['Jeepney', 'Bus', 'Tricycle', 'UV Van'].map(vehicle => <button type="button" className="chip chip-button" key={vehicle} onClick={() => { setQuery(vehicle); navigate(`/terminals?q=${vehicle}`); }}>● {vehicle}</button>)}</div></form></div><MapPanel terminalItems={mapItems} /></section>{isPassenger && <section className="section commute-section">
+    <div className="section-heading"><div><span className="eyebrow">YOUR COMMUTE</span><h2>{commute.location ? `Around ${commute.location.area || commute.location.city}` : 'Make SakayLokal yours'}</h2><p>{commute.location ? 'A quick look at transport stops in your saved home area.' : 'Save your home area to quickly find nearby transport stops.'}</p></div><Link className="button outline small" to="/account">{commute.location ? 'Change home area' : 'Set home area'}</Link></div>
+    {commute.error && <p className="error" role="alert">{commute.error}</p>}
+    {commute.location && !loading && <>{locationTerminals.length === 0 && commute.location.area && <p className="field-help">No terminals listed in {commute.location.area} yet; showing stops in {commute.location.city} instead.</p>}
+      {personalizedTerminals.length ? <div className="grid three">{personalizedTerminals.slice(0, 3).map(terminal => <TerminalCard key={terminal.id} terminal={terminal} compact />)}</div> : <div className="card"><h3>No terminals listed in {commute.location.city} yet</h3><p>Try browsing all areas or use route search to explore other available trips.</p></div>}
+      <div className="commute-actions"><Link className="button yellow small" to={terminalSearch}>All stops in my area</Link><Link className="button outline small" to="/route-search">Find routes and fares</Link></div>
+    </>}
+    {commute.location && loading && <Loading label="Finding transport stops in your area..." />}
+  </section>}<section className="feature-strip"><div className="feature-card"><span className="feature-icon">⚡</span><div><h3>Fast route lookup</h3><p>Find the quickest terminal or fare route in seconds.</p></div></div><div className="feature-card"><span className="feature-icon">✓</span><div><h3>Verified stops</h3><p>Check reliable terminals and schedules across the city.</p></div></div><div className="feature-card"><span className="feature-icon">📍</span><div><h3>Live reporting</h3><p>Report issues and track public transport updates easily.</p></div></div></section><section className="section"><div className="section-heading"><h2>Terminals in Calapan City</h2><Link to="/terminals">See all terminals</Link></div>{loading ? <Loading label="Loading terminals..." /> : <div className="grid three">{mapItems.slice(0, 3).map(t => <TerminalCard key={t.id} terminal={t} compact />)}</div>}{!loading && items.length === 0 && <div className="card"><h3>No published terminals yet</h3><p>Transport records will appear here after a municipality staff member submits them and the super admin publishes them.</p><Link className="button outline small" to="/login">Admin login</Link></div>}<div className="home-lower"><div><h2>Something went wrong on your trip?</h2><div className="grid two"><Link className="card action-card" to="/reports/create?type=complaint"><h3>Complaint</h3><p>Overcharging, rude service, long waits.</p></Link><Link className="card action-card" to="/reports/create?type=incident"><h3>Incident report</h3><p>Accidents, breakdowns, safety concerns.</p></Link><Link className="card action-card" to="/reports/create?type=assistance"><h3>Assistance request</h3><p>Need help with a trip or a terminal.</p></Link><Link className="card action-card" to="/reports/create?type=feedback"><h3>Rate a service</h3><p>Tell others how a route or terminal is.</p></Link></div></div><aside><h2>Advisories</h2>{advisories.length ? advisories.slice(0, 3).map(advisory => <div className="card advisory" key={advisory.id}><b>{advisory.title}</b><p>{advisory.body}</p><span className="advisory-type">{advisory.advisory_type}</span></div>) : <div className="card advisory"><b>No current advisories</b><p>Check back for the latest route updates and announcements.</p></div>}<Link className="card weather advisory-link" to="https://open-meteo.com/" target="_blank" rel="noreferrer"><div><b>Calapan City weather</b><p>Open the weather service for current conditions</p></div><strong>☀</strong></Link></aside></div></section></main><Footer /></>;
 }
 
 function Terminals() {
@@ -824,6 +855,13 @@ function ProtectedAccount({ children }) {
 function AccountSettings() {
   const [account, setAccount] = useState(null);
   const [originalAccount, setOriginalAccount] = useState(null);
+  const [commuteAreas, setCommuteAreas] = useState([]);
+  const [commuteCity, setCommuteCity] = useState('');
+  const [commuteArea, setCommuteArea] = useState('');
+  const [commuteSaved, setCommuteSaved] = useState(false);
+  const [commuteAreasLoading, setCommuteAreasLoading] = useState(true);
+  const [commuteSaving, setCommuteSaving] = useState(false);
+  const [commuteError, setCommuteError] = useState('');
   const [editing, setEditing] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState('');
@@ -833,9 +871,30 @@ function AccountSettings() {
   const popUps = usePopUps();
   useEffect(() => {
     let active = true;
-    getAccount().then(result => { if (active) { setAccount(result.data); setOriginalAccount(result.data); } })
+    getAccount().then(result => {
+      if (!active) return;
+      setAccount(result.data);
+      setOriginalAccount(result.data);
+      try {
+        const preferences = getCommutePreferences(result.data.user_id);
+        if (preferences) {
+          setCommuteCity(preferences.city);
+          setCommuteArea(preferences.area);
+          setCommuteSaved(true);
+        }
+      } catch {
+        setCommuteError('Your saved home area could not be read. You can choose a new area and save it again.');
+      }
+    })
       .catch(exception => { if (active) setError(exception.message); })
       .finally(() => { if (active) setLoading(false); });
+    getAreas().then(result => {
+      if (active) setCommuteAreas(result.data || []);
+    }).catch(exception => {
+      if (active) setCommuteError(exception.message || 'Could not load municipality and barangay options.');
+    }).finally(() => {
+      if (active) setCommuteAreasLoading(false);
+    });
     return () => { active = false; };
   }, []);
   useEffect(() => {
@@ -875,10 +934,75 @@ function AccountSettings() {
     setPhoto(null);
     setEditing(false);
   };
+  const saveCommuteLocation = () => {
+    setCommuteError('');
+    if (!commuteAreas.some(area => area.city === commuteCity && area.name === commuteArea)) {
+      setCommuteError('Choose a municipality and barangay from the available options.');
+      return;
+    }
+    setCommuteSaving(true);
+    try {
+      saveCommutePreferences(account.user_id, { city: commuteCity, area: commuteArea });
+      setCommuteSaved(true);
+      popUps.showPopUp({ kind: 'success', title: 'Home area saved', message: 'Your SakayLokal home page will now show transport stops around your selected area.' });
+    } catch (exception) {
+      setCommuteError(exception.message || 'Could not save your home area in this browser.');
+      popUps.showPopUp({ kind: 'error', title: 'Could not save home area', message: exception.message || 'Please try again.' });
+    } finally {
+      setCommuteSaving(false);
+    }
+  };
+  const clearCommuteLocation = () => {
+    setCommuteError('');
+    try {
+      removeCommutePreferences(account.user_id);
+      setCommuteCity('');
+      setCommuteArea('');
+      setCommuteSaved(false);
+      popUps.showPopUp({ kind: 'success', title: 'Home area removed', message: 'Your home page will return to its regular view.' });
+    } catch (exception) {
+      setCommuteError(exception.message || 'Could not remove your saved home area.');
+    }
+  };
   if (loading) return <><Header /><main className="page"><Loading label="Loading account settings..." /></main></>;
   if (!account) return <><Header /><main className="page"><p className="error">{error || 'Could not load your account.'}</p></main></>;
   const avatar = preview || (account.profile_photo ? getPublicAsset(account.profile_photo) : '');
-  return <><Header /><main className="page account-page"><div className="title-row"><div><span className="eyebrow">YOUR SAKAYLOKAL ACCOUNT</span><h1>Account settings</h1><p className="lead">Manage your profile and choose which updates you receive by email.</p></div></div>{error && <p className="error" role="alert">{error}</p>}<div className="card form account-form"><section className="profile-photo-section"><div className="profile-avatar">{avatar ? <img src={avatar} alt="Profile" /> : <span>{account.full_name?.slice(0, 1)?.toUpperCase() || 'U'}</span>}</div><div><h2>Profile photo</h2><p>JPEG, PNG, or WebP, up to 2 MB. Save your profile to apply changes.</p>{editing && <label className="button outline small photo-picker">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" disabled={saving} onChange={event => setPhoto(event.target.files?.[0] || null)} /></label>}</div></section><div className="form-grid"><label>Full name<input name="full_name" value={account.full_name || ''} onChange={event => setAccount({ ...account, full_name: event.target.value })} maxLength="150" required disabled={!editing} /></label><label>Email address<input name="email" type="email" value={account.email || ''} onChange={event => setAccount({ ...account, email: event.target.value })} maxLength="255" required disabled={!editing} /></label><label className="wide">Phone<input name="phone" value={account.phone || ''} onChange={event => setAccount({ ...account, phone: event.target.value })} maxLength="30" disabled={!editing} /></label></div><section className="notification-preferences"><h2>Email notifications</h2><p>Subscriptions are optional. Severe-weather checks run every 30 minutes when the background notification worker is running.</p><label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_advisories))} disabled={!editing} onChange={event => setAccount({ ...account, notify_advisories: event.target.checked ? 1 : 0 })} /><span><b>Public advisories</b><small>Get an email when a new advisory is published.</small></span></label><label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_weather))} disabled={!editing} onChange={event => setAccount({ ...account, notify_weather: event.target.checked ? 1 : 0 })} /><span><b>Severe weather and heavy-rain alerts</b><small>Alerts are based on Open-Meteo forecasts for Calapan.</small></span></label></section><div className="account-form-actions">{editing ? <><button type="button" className="button yellow" disabled={saving} onClick={() => save()}>{saving ? <><span className="button-spinner" />Saving...</> : 'Save profile'}</button><button type="button" className="button outline" disabled={saving} onClick={cancelEdit}>Cancel</button></> : <button type="button" className="button yellow" onClick={() => setEditing(true)}>Edit profile</button>}<PasswordChangeForm changePassword={changeAccountPassword} storageKey="sakaylokal_user" /></div><p className="field-help">Email delivery is managed by the site administrator through Gmail SMTP.</p></div></main></>;
+  return <><Header /><main className="page account-page">
+    <div className="title-row"><div><span className="eyebrow">YOUR SAKAYLOKAL ACCOUNT</span><h1>Account settings</h1><p className="lead">Manage your profile, commute area, and email updates.</p></div></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="card form account-form">
+      <section className="profile-photo-section"><div className="profile-avatar">{avatar ? <img src={avatar} alt="Profile" /> : <span>{account.full_name?.slice(0, 1)?.toUpperCase() || 'U'}</span>}</div><div><h2>Profile photo</h2><p>JPEG, PNG, or WebP, up to 2 MB. Save your profile to apply changes.</p>{editing && <label className="button outline small photo-picker">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" disabled={saving} onChange={event => setPhoto(event.target.files?.[0] || null)} /></label>}</div></section>
+      <div className="form-grid">
+        <label>Full name<input name="full_name" value={account.full_name || ''} onChange={event => setAccount({ ...account, full_name: event.target.value })} maxLength="150" required disabled={!editing} /></label>
+        <label>Email address<input name="email" type="email" value={account.email || ''} onChange={event => setAccount({ ...account, email: event.target.value })} maxLength="255" required disabled={!editing} /></label>
+        <label className="wide">Phone<input name="phone" value={account.phone || ''} onChange={event => setAccount({ ...account, phone: event.target.value })} maxLength="30" disabled={!editing} /></label>
+      </div>
+      <section className="commute-preferences">
+        <h2>My home commute area</h2>
+        <p>Save your usual area to see nearby transport stops on your home page. This is optional and saved only in this browser; no GPS location is collected.</p>
+        {commuteError && <p className="error" role="alert">{commuteError}</p>}
+        {commuteAreasLoading ? <Loading label="Loading available areas..." /> : <LocationSelectors
+          areas={commuteAreas}
+          city={commuteCity}
+          barangay={commuteArea}
+          onCityChange={value => { setCommuteCity(value); setCommuteArea(''); setCommuteError(''); }}
+          onBarangayChange={value => { setCommuteArea(value); setCommuteError(''); }}
+          cityLabel="Home municipality or city"
+          barangayLabel="Home barangay"
+        />}
+        {!commuteAreasLoading && <div className="commute-preference-actions">
+          <button type="button" className="button yellow small" onClick={saveCommuteLocation} disabled={commuteSaving || !commuteCity || !commuteArea}>{commuteSaving ? 'Saving area...' : 'Save home area'}</button>
+          {commuteSaved && <button type="button" className="button outline small" onClick={clearCommuteLocation} disabled={commuteSaving}>Remove saved area</button>}
+        </div>}
+      </section>
+      <section className="notification-preferences"><h2>Email notifications</h2><p>Subscriptions are optional. Severe-weather checks run every 30 minutes when the background notification worker is running.</p>
+        <label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_advisories))} disabled={!editing} onChange={event => setAccount({ ...account, notify_advisories: event.target.checked ? 1 : 0 })} /><span><b>Public advisories</b><small>Get an email when a new advisory is published.</small></span></label>
+        <label className="preference-row"><input type="checkbox" checked={Boolean(Number(account.notify_weather))} disabled={!editing} onChange={event => setAccount({ ...account, notify_weather: event.target.checked ? 1 : 0 })} /><span><b>Severe weather and heavy-rain alerts</b><small>Alerts are based on Open-Meteo forecasts for Calapan.</small></span></label>
+      </section>
+      <div className="account-form-actions">{editing ? <><button type="button" className="button yellow" disabled={saving} onClick={() => save()}>{saving ? <><span className="button-spinner" />Saving...</> : 'Save profile'}</button><button type="button" className="button outline" disabled={saving} onClick={cancelEdit}>Cancel</button></> : <button type="button" className="button yellow" onClick={() => setEditing(true)}>Edit profile</button>}<PasswordChangeForm changePassword={changeAccountPassword} storageKey="sakaylokal_user" /></div>
+      <p className="field-help">Email delivery is managed by the site administrator through Gmail SMTP.</p>
+    </div>
+  </main></>;
 }
 
 function PasswordChangeForm({ changePassword, storageKey }) {
