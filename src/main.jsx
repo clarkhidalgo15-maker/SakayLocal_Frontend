@@ -6,11 +6,11 @@ import L from 'leaflet';
 import { getCommutePreferences, removeCommutePreferences, saveCommutePreferences } from './commutePreferences';
 import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, resendSignupOtp, submitReport, updateAccount, verifySignupOtp } from './api';
 import { clearSavedFavorites, getSavedFavorites, toggleSavedFavorite } from './savedFavorites';
-import './favorites.css';
 import { initScrollReveal, setDocumentTitle } from './reveal';
 import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
+import './favorites.css';
 
 const terminals = [
   { id: 1, name: 'Calapan Central Terminal', address: 'J.P. Rizal St., Poblacion', area: 'Poblacion, Calapan City', hours: '4:30 AM - 10:00 PM', vehicles: ['Jeepney', 'Bus'], codes: ['J1', 'B3'], lat: 13.41172, lng: 121.18024 },
@@ -598,9 +598,20 @@ function RouteSearch() {
             return <article className="card route-result route-result-wrapper" key={routeItem.id}>
               <Link className="route-result-link-inner" to={favorite.path}>
                 <b className={`code code-${routeItem.code[0]}`}>{routeItem.code}</b>
-                <div><h3>{routeItem.name}</h3><p>{routeItem.detail}</p></div>
-                <strong>{routeItem.fare}<small>{from && to ? `${from} to ${to}` : `${routeItem.origin} to ${routeItem.destination}`} · {routeItem.time}</small></strong>
-                <span className="route-result-arrow">View route →</span>
+                <div className="route-result-info">
+                  <h3>{routeItem.name}</h3>
+                  <div className="route-result-direction">
+                    <div><span>ORIGIN</span><strong>{routeItem.origin}</strong></div>
+                    <i aria-hidden="true">→</i>
+                    <div><span>DESTINATION</span><strong>{routeItem.destination}</strong></div>
+                  </div>
+                  <div className="route-result-meta">
+                    <span><b>Fare</b>{routeItem.fare}</span>
+                    <span><b>Schedule</b>{routeItem.schedule || 'Schedule not listed'}</span>
+                    <span><b>Vehicle</b>{routeItem.vehicle || 'Not listed'}</span>
+                  </div>
+                  <span className="route-result-arrow">View route →</span>
+                </div>
               </Link>
               {saved.isPassenger && <FavoriteToggle type="route" item={favorite} isSaved={favoriteExists(saved.favorites, 'route', routeItem.id)} onToggle={saved.toggleFavorite} />}
             </article>;
