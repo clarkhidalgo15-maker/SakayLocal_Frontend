@@ -5,6 +5,8 @@ import { CircleMarker, MapContainer, Marker, Popup, Polyline, TileLayer, useMap,
 import L from 'leaflet';
 import { getCommutePreferences, removeCommutePreferences, saveCommutePreferences } from './commutePreferences';
 import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, submitReport, updateAccount, verifyLoginOtp } from './api';
+import { clearSavedFavorites, getSavedFavorites, toggleSavedFavorite } from './savedFavorites';
+import './favorites.css';
 import { initScrollReveal, setDocumentTitle } from './reveal';
 import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
 import './styles.css';
@@ -50,6 +52,67 @@ const PopUpsContext = createContext(null);
 
 function usePopUps() {
   return useContext(PopUpsContext);
+}
+
+function useSavedFavorites() {
+  const account = JSON.parse(localStorage.getItem('sakaylokal_user') || 'null');
+  const administrator = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
+  const isPassenger = account?.role === 'passenger' && !administrator?.access_token;
+  const [savedState, setSavedState] = useState(() => {
+    if (!isPassenger) return { favorites: [], error: '' };
+    try {
+      return { favorites: getSavedFavorites(account.user_id), error: '' };
+    } catch (exception) {
+      return { favorites: [], error: exception.message || 'Your saved favorites could not be read.' };
+    }
+  });
+  const popUps = usePopUps();
+
+  const toggleFavorite = item => {
+    if (!isPassenger) return;
+    try {
+      const updated = toggleSavedFavorite(account.user_id, item);
+      setSavedState({ favorites: updated, error: '' });
+    } catch (exception) {
+      popUps.showPopUp({ kind: 'error', title: 'Could not save favorite', message: exception.message || 'Please try again.' });
+    }
+  };
+
+  const clearFavorites = () => {
+    if (!isPassenger) return;
+    try {
+      clearSavedFavorites(account.user_id);
+      setSavedState({ favorites: [], error: '' });
+    } catch (exception) {
+      popUps.showPopUp({ kind: 'error', title: 'Could not clear favorites', message: exception.message || 'Please try again.' });
+    }
+  };
+
+  return { ...savedState, isPassenger, toggleFavorite, clearFavorites };
+}
+
+function FavoriteToggle({ type, item, isSaved, onToggle }) {
+  return <button
+    type="button"
+    className={`favorite-toggle ${isSaved ? 'is-saved' : ''}`}
+    aria-label={`${isSaved ? 'Remove' : 'Save'} ${type}: ${item.title}`}
+    aria-pressed={isSaved}
+    onClick={event => {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggle({
+        type,
+        id: item.id,
+        title: item.title,
+        subtitle: item.subtitle,
+        path: item.path,
+      });
+    }}
+  >{isSaved ? '♥ Saved' : '♡ Save'}</button>;
+}
+
+function favoriteExists(favorites, type, id) {
+  return favorites.some(item => item.type === type && Number(item.id) === Number(id));
 }
 
 const POPUP_TONES = {
@@ -249,14 +312,32 @@ function MapPanel({ label = 'Calapan City, Oriental Mindoro', route = false, rou
   </MapContainer><span className="map-label">Leaflet + OpenStreetMap · {label}</span></div>;
 }
 
-function TerminalCard({ terminal, compact = false }) {
-  return <Link to={`/terminals/${terminal.id}`} className={`card terminal-card ${compact ? 'compact' : ''}`}><div className="terminal-card-top"><span className="terminal-type">TRANSPORT STOP</span><b className="open"><span className="status-dot" />Open</b></div><div className="card-title"><h3>{terminal.name}</h3><span className="terminal-arrow">↗</span></div><p className="terminal-address"><span>⌖</span>{terminal.address}</p><div className="terminal-meta"><span>◷ {terminal.hours || 'Hours not listed'}</span><span>{terminal.city || 'Oriental Mindoro'}</span></div><div className="chips">{terminal.vehicles.length ? terminal.vehicles.map(vehicle => <span className="chip" key={vehicle}>{vehicle}</span>) : <span className="chip muted-chip">Transport services</span>}</div><div className="terminal-card-footer"><span>View terminal details</span><span>→</span></div></Link>;
+function TerminalCard({ terminal, compact = false, favorites = [], isPassenger = false, onToggleFavorite = () => {} }) {
+  const favorite = {
+    id: terminal.id,
+    title: terminal.name,
+    subtitle: `${terminal.area || ''}${terminal.city ? `, ${terminal.city}` : ''}`,
+    path: `/terminals/${terminal.id}`,
+  };
+  const isSaved = favoriteExists(favorites, 'terminal', terminal.id);
+  return <article className={`card terminal-card ${compact ? 'compact' : ''}`}>
+    <Link to={favorite.path} className="terminal-card-link">
+      <div className="terminal-card-top"><span className="terminal-type">TRANSPORT STOP</span><b className="open"><span className="status-dot" />Open</b></div>
+      <div className="card-title"><h3>{terminal.name}</h3><span className="terminal-arrow">↗</span></div>
+      <p className="terminal-address"><span>⌖</span>{terminal.address}</p>
+      <div className="terminal-meta"><span>◷ {terminal.hours || 'Hours not listed'}</span><span>{terminal.city || 'Oriental Mindoro'}</span></div>
+      <div className="chips">{terminal.vehicles.length ? terminal.vehicles.map(vehicle => <span className="chip" key={vehicle}>{vehicle}</span>) : <span className="chip muted-chip">Transport services</span>}</div>
+      <div className="terminal-card-footer"><span>View terminal details</span><span>→</span></div>
+    </Link>
+    {isPassenger && <FavoriteToggle type="terminal" item={favorite} isSaved={isSaved} onToggle={onToggleFavorite} />}
+  </article>;
 }
 
 function Home() {
   const passenger = JSON.parse(localStorage.getItem('sakaylokal_user') || 'null');
   const administrator = JSON.parse(localStorage.getItem('sakaylokal_admin') || 'null');
   const isPassenger = passenger?.role === 'passenger' && !administrator?.access_token;
+  const saved = useSavedFavorites();
   const [commute, setCommute] = useState(() => {
     if (!isPassenger) return { location: null, error: '' };
     try {
@@ -297,14 +378,24 @@ function Home() {
     <div className="section-heading"><div><span className="eyebrow">YOUR COMMUTE</span><h2>{commute.location ? `Around ${commute.location.area || commute.location.city}` : 'Make SakayLokal yours'}</h2><p>{commute.location ? 'A quick look at transport stops in your saved home area.' : 'Save your home area to quickly find nearby transport stops.'}</p></div><Link className="button outline small" to="/account">{commute.location ? 'Change home area' : 'Set home area'}</Link></div>
     {commute.error && <p className="error" role="alert">{commute.error}</p>}
     {commute.location && !loading && <>{locationTerminals.length === 0 && commute.location.area && <p className="field-help">No terminals listed in {commute.location.area} yet; showing stops in {commute.location.city} instead.</p>}
-      {personalizedTerminals.length ? <div className="grid three">{personalizedTerminals.slice(0, 3).map(terminal => <TerminalCard key={terminal.id} terminal={terminal} compact />)}</div> : <div className="card"><h3>No terminals listed in {commute.location.city} yet</h3><p>Try browsing all areas or use route search to explore other available trips.</p></div>}
+      {personalizedTerminals.length ? <div className="grid three">{personalizedTerminals.slice(0, 3).map(terminal => <TerminalCard key={terminal.id} terminal={terminal} compact favorites={saved.favorites} isPassenger={isPassenger} onToggleFavorite={saved.toggleFavorite} />)}</div> : <div className="card"><h3>No terminals listed in {commute.location.city} yet</h3><p>Try browsing all areas or use route search to explore other available trips.</p></div>}
       <div className="commute-actions"><Link className="button yellow small" to={terminalSearch}>All stops in my area</Link><Link className="button outline small" to="/route-search">Find routes and fares</Link></div>
     </>}
     {commute.location && loading && <Loading label="Finding transport stops in your area..." />}
-  </section>}<section className="feature-strip"><div className="feature-card"><span className="feature-icon">⚡</span><div><h3>Fast route lookup</h3><p>Find the quickest terminal or fare route in seconds.</p></div></div><div className="feature-card"><span className="feature-icon">✓</span><div><h3>Verified stops</h3><p>Check reliable terminals and schedules across the city.</p></div></div><div className="feature-card"><span className="feature-icon">📍</span><div><h3>Live reporting</h3><p>Report issues and track public transport updates easily.</p></div></div></section><section className="section"><div className="section-heading"><h2>Terminals in Calapan City</h2><Link to="/terminals">See all terminals</Link></div>{loading ? <Loading label="Loading terminals..." /> : <div className="grid three">{mapItems.slice(0, 3).map(t => <TerminalCard key={t.id} terminal={t} compact />)}</div>}{!loading && items.length === 0 && <div className="card"><h3>No published terminals yet</h3><p>Transport records will appear here after a municipality staff member submits them and the super admin publishes them.</p><Link className="button outline small" to="/login">Admin login</Link></div>}<div className="home-lower"><div><h2>Something went wrong on your trip?</h2><div className="grid two"><Link className="card action-card" to="/reports/create?type=complaint"><h3>Complaint</h3><p>Overcharging, rude service, long waits.</p></Link><Link className="card action-card" to="/reports/create?type=incident"><h3>Incident report</h3><p>Accidents, breakdowns, safety concerns.</p></Link><Link className="card action-card" to="/reports/create?type=assistance"><h3>Assistance request</h3><p>Need help with a trip or a terminal.</p></Link><Link className="card action-card" to="/reports/create?type=feedback"><h3>Rate a service</h3><p>Tell others how a route or terminal is.</p></Link></div></div><aside><h2>Advisories</h2>{advisories.length ? advisories.slice(0, 3).map(advisory => <div className="card advisory" key={advisory.id}><b>{advisory.title}</b><p>{advisory.body}</p><span className="advisory-type">{advisory.advisory_type}</span></div>) : <div className="card advisory"><b>No current advisories</b><p>Check back for the latest route updates and announcements.</p></div>}<Link className="card weather advisory-link" to="https://open-meteo.com/" target="_blank" rel="noreferrer"><div><b>Calapan City weather</b><p>Open the weather service for current conditions</p></div><strong>☀</strong></Link></aside></div></section></main><Footer /></>;
+  </section>}
+  {isPassenger && <section className="section saved-favorites-section">
+    <div className="section-heading"><div><span className="eyebrow">YOUR SHORTLIST</span><h2>Saved routes and terminals</h2><p>Keep your regular stops and routes one tap away.</p></div>{saved.favorites.length > 0 && <button className="button outline small" type="button" onClick={saved.clearFavorites}>Clear all</button>}</div>
+    {saved.error && <div className="inline-warning"><div><strong>Saved favorites need attention</strong><span>{saved.error}</span></div><button className="button outline small" type="button" onClick={saved.clearFavorites}>Clear saved favorites</button></div>}
+    {saved.favorites.length ? <div className="grid two">{saved.favorites.map(item => <article className="card saved-favorite-card" key={`${item.type}-${item.id}`}>
+      <div><span className="eyebrow">{item.type === 'route' ? 'SAVED ROUTE' : 'SAVED TERMINAL'}</span><h3><Link to={item.path}>{item.title}</Link></h3><p>{item.subtitle}</p></div>
+      <FavoriteToggle type={item.type} item={item} isSaved onToggle={saved.toggleFavorite} />
+    </article>)}</div> : <div className="card saved-favorites-empty"><h3>No saved routes or terminals yet</h3><p>Use the Save button on a route or terminal to add it here.</p><Link className="button outline small" to="/route-search">Browse routes and fares</Link></div>}
+  </section>}
+  <section className="feature-strip"><div className="feature-card"><span className="feature-icon">⚡</span><div><h3>Fast route lookup</h3><p>Find the quickest terminal or fare route in seconds.</p></div></div><div className="feature-card"><span className="feature-icon">✓</span><div><h3>Verified stops</h3><p>Check reliable terminals and schedules across the city.</p></div></div><div className="feature-card"><span className="feature-icon">📍</span><div><h3>Live reporting</h3><p>Report issues and track public transport updates easily.</p></div></div></section><section className="section"><div className="section-heading"><h2>Terminals in Calapan City</h2><Link to="/terminals">See all terminals</Link></div>{loading ? <Loading label="Loading terminals..." /> : <div className="grid three">{mapItems.slice(0, 3).map(t => <TerminalCard key={t.id} terminal={t} compact favorites={saved.favorites} isPassenger={isPassenger} onToggleFavorite={saved.toggleFavorite} />)}</div>}{!loading && items.length === 0 && <div className="card"><h3>No published terminals yet</h3><p>Transport records will appear here after a municipality staff member submits them and the super admin publishes them.</p><Link className="button outline small" to="/login">Admin login</Link></div>}<div className="home-lower"><div><h2>Something went wrong on your trip?</h2><div className="grid two"><Link className="card action-card" to="/reports/create?type=complaint"><h3>Complaint</h3><p>Overcharging, rude service, long waits.</p></Link><Link className="card action-card" to="/reports/create?type=incident"><h3>Incident report</h3><p>Accidents, breakdowns, safety concerns.</p></Link><Link className="card action-card" to="/reports/create?type=assistance"><h3>Assistance request</h3><p>Need help with a trip or a terminal.</p></Link><Link className="card action-card" to="/reports/create?type=feedback"><h3>Rate a service</h3><p>Tell others how a route or terminal is.</p></Link></div></div><aside><h2>Advisories</h2>{advisories.length ? advisories.slice(0, 3).map(advisory => <div className="card advisory" key={advisory.id}><b>{advisory.title}</b><p>{advisory.body}</p><span className="advisory-type">{advisory.advisory_type}</span></div>) : <div className="card advisory"><b>No current advisories</b><p>Check back for the latest route updates and announcements.</p></div>}<Link className="card weather advisory-link" to="https://open-meteo.com/" target="_blank" rel="noreferrer"><div><b>Calapan City weather</b><p>Open the weather service for current conditions</p></div><strong>☀</strong></Link></aside></div></section></main><Footer /></>;
 }
 
 function Terminals() {
+  const saved = useSavedFavorites();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [items, setItems] = useState([]);
@@ -379,10 +470,11 @@ function Terminals() {
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
     );
   };
-  return <><Header /><main className="page terminal-directory"><div className="breadcrumb">Transport directory / {city || 'Oriental Mindoro'}{barangay ? ` / ${barangay}` : ''}</div><section className="directory-hero"><div><span className="eyebrow">SAKAYLOKAL DIRECTORY</span><h1>Find your next<br /><span>transport stop.</span></h1><p>Explore verified terminals and pick-up spots across Oriental Mindoro. Select a location to narrow your search.</p></div><div className="directory-stat"><strong>{items.length}</strong><span>active terminals<br />in the directory</span></div></section><section className="directory-controls card"><div className="controls-heading"><div><span className="eyebrow">STEP 1</span><h2>Choose your location</h2></div><button className="button outline small" type="button" onClick={() => { updateLocation(''); updateQuery(''); setVehicleFilter(''); setUserLocation(null); setLocationError(''); }}>Clear filters</button></div><div className="location-filter"><label>Municipality or city<select value={city} onChange={e => updateLocation(e.target.value)}><option value="">All Oriental Mindoro</option>{cities.map(value => <option key={value}>{value}</option>)}</select></label><label>Barangay<select value={barangay} onChange={e => updateLocation(city, e.target.value)} disabled={!city}><option value="">All barangays</option>{barangays.map(value => <option key={value}>{value}</option>)}</select></label></div><div className="directory-search"><label>Search by terminal or landmark<input value={query} onChange={e => updateQuery(e.target.value)} placeholder="e.g. Poblacion, public market" /></label><button className="button dark" type="button" onClick={useLocation}>⌖ Use my location</button></div>{locationError && <p className="error location-message" role="alert">{locationError}</p>}{userLocation && <p className="location-message success-text">Showing terminals within 25 km of your location ({userLocation.latitude.toFixed(3)}, {userLocation.longitude.toFixed(3)}). The blue dot marks your location on the map.</p>}<div className="vehicle-filter"><span>Vehicle type</span><div className="chips"><button type="button" className={`chip chip-button ${!vehicleFilter ? 'selected' : ''}`} onClick={() => setVehicleFilter('')}>All services</button>{['Jeepney', 'Bus', 'Tricycle', 'UV Van'].map(vehicle => <button type="button" className={`chip chip-button ${vehicleFilter === vehicle ? 'selected' : ''}`} key={vehicle} onClick={() => setVehicleFilter(vehicle)}>{vehicle}</button>)}</div></div></section><div className="directory-toolbar"><div><span className="eyebrow">STEP 2 · RESULTS</span><h2>{userLocation ? 'Terminals near you' : city ? `${city}${barangay ? ` · ${barangay}` : ''}` : 'All transport stops'}</h2></div><strong>{filtered.length} result{filtered.length === 1 ? '' : 's'}</strong></div>{error && <div className="card error-card"><h3>We could not load the directory</h3><p>{error}</p><button className="button outline small" type="button" onClick={() => window.location.reload()}>Try again</button></div>}{loading ? <Loading label="Loading transport stops..." /> : <div className="directory-layout"><section className="terminal-results">{filtered.length ? filtered.map(t => <TerminalCard key={t.id} terminal={t} />) : <div className="card selection-empty"><div className="empty-icon">⌖</div><h3>No terminals found</h3><p>{userLocation ? 'There are no active terminals within 25 km of your location.' : 'Try another barangay, vehicle type, or search term. Admin can add a terminal under the selected location.'}</p></div>}</section><section className="directory-map"><div className="map-heading"><div><span className="eyebrow">LIVE MAP</span><h2>Nearby transport stops</h2></div><span className="map-count">{filtered.length} terminal{filtered.length === 1 ? '' : 's'}{userLocation ? ' + you' : ''}</span></div><MapPanel terminalItems={filtered} currentLocation={userLocation ? [userLocation.latitude, userLocation.longitude] : null} label={`${userLocation ? 'Nearby' : (city || 'Oriental Mindoro')} transport map`} /></section></div>}</main></>;
+  return <><Header /><main className="page terminal-directory"><div className="breadcrumb">Transport directory / {city || 'Oriental Mindoro'}{barangay ? ` / ${barangay}` : ''}</div><section className="directory-hero"><div><span className="eyebrow">SAKAYLOKAL DIRECTORY</span><h1>Find your next<br /><span>transport stop.</span></h1><p>Explore verified terminals and pick-up spots across Oriental Mindoro. Select a location to narrow your search.</p></div><div className="directory-stat"><strong>{items.length}</strong><span>active terminals<br />in the directory</span></div></section><section className="directory-controls card"><div className="controls-heading"><div><span className="eyebrow">STEP 1</span><h2>Choose your location</h2></div><button className="button outline small" type="button" onClick={() => { updateLocation(''); updateQuery(''); setVehicleFilter(''); setUserLocation(null); setLocationError(''); }}>Clear filters</button></div><div className="location-filter"><label>Municipality or city<select value={city} onChange={e => updateLocation(e.target.value)}><option value="">All Oriental Mindoro</option>{cities.map(value => <option key={value}>{value}</option>)}</select></label><label>Barangay<select value={barangay} onChange={e => updateLocation(city, e.target.value)} disabled={!city}><option value="">All barangays</option>{barangays.map(value => <option key={value}>{value}</option>)}</select></label></div><div className="directory-search"><label>Search by terminal or landmark<input value={query} onChange={e => updateQuery(e.target.value)} placeholder="e.g. Poblacion, public market" /></label><button className="button dark" type="button" onClick={useLocation}>⌖ Use my location</button></div>{locationError && <p className="error location-message" role="alert">{locationError}</p>}{userLocation && <p className="location-message success-text">Showing terminals within 25 km of your location ({userLocation.latitude.toFixed(3)}, {userLocation.longitude.toFixed(3)}). The blue dot marks your location on the map.</p>}<div className="vehicle-filter"><span>Vehicle type</span><div className="chips"><button type="button" className={`chip chip-button ${!vehicleFilter ? 'selected' : ''}`} onClick={() => setVehicleFilter('')}>All services</button>{['Jeepney', 'Bus', 'Tricycle', 'UV Van'].map(vehicle => <button type="button" className={`chip chip-button ${vehicleFilter === vehicle ? 'selected' : ''}`} key={vehicle} onClick={() => setVehicleFilter(vehicle)}>{vehicle}</button>)}</div></div></section><div className="directory-toolbar"><div><span className="eyebrow">STEP 2 · RESULTS</span><h2>{userLocation ? 'Terminals near you' : city ? `${city}${barangay ? ` · ${barangay}` : ''}` : 'All transport stops'}</h2></div><strong>{filtered.length} result{filtered.length === 1 ? '' : 's'}</strong></div>{error && <div className="card error-card"><h3>We could not load the directory</h3><p>{error}</p><button className="button outline small" type="button" onClick={() => window.location.reload()}>Try again</button></div>}{loading ? <Loading label="Loading transport stops..." /> : <div className="directory-layout"><section className="terminal-results">{filtered.length ? filtered.map(t => <TerminalCard key={t.id} terminal={t} favorites={saved.favorites} isPassenger={saved.isPassenger} onToggleFavorite={saved.toggleFavorite} />) : <div className="card selection-empty"><div className="empty-icon">⌖</div><h3>No terminals found</h3><p>{userLocation ? 'There are no active terminals within 25 km of your location.' : 'Try another barangay, vehicle type, or search term. Admin can add a terminal under the selected location.'}</p></div>}</section><section className="directory-map"><div className="map-heading"><div><span className="eyebrow">LIVE MAP</span><h2>Nearby transport stops</h2></div><span className="map-count">{filtered.length} terminal{filtered.length === 1 ? '' : 's'}{userLocation ? ' + you' : ''}</span></div><MapPanel terminalItems={filtered} currentLocation={userLocation ? [userLocation.latitude, userLocation.longitude] : null} label={`${userLocation ? 'Nearby' : (city || 'Oriental Mindoro')} transport map`} /></section></div>}</main></>;
 }
 
 function TerminalDetails() {
+  const saved = useSavedFavorites();
   const { id } = useParams();
   const terminalId = Number(id);
   const [terminal, setTerminal] = useState(null);
@@ -435,10 +527,17 @@ function TerminalDetails() {
     ? `${(directions.distance / 1000).toFixed(1)} km`
     : directions ? `${Math.round(directions.distance)} m` : '';
   const routeDuration = directions ? `${Math.max(1, Math.round(directions.duration / 60))} min` : '';
-  return <><Header /><main className="page"><p className="breadcrumb">Terminals / Calapan City / {terminal.name}</p><div className="title-row"><div><h1>{terminal.name}</h1><p><b className="open">Open now</b> · {terminal.hours}</p></div><div className="actions"><button type="button" className="button outline" onClick={openDirections} disabled={directionsLoading}>{directionsLoading ? 'Finding your location...' : 'Get directions'}</button><Link className="button outline" to="/reports/create">Report an issue here</Link><Link className="button yellow" to="/reports/create">Rate this terminal</Link></div></div>{directionsError && <p className="error" role="alert">{directionsError}</p>}{directions && <p className="field-help" role="status">Route from your current location to {terminal.name}: {routeDistance}, about {routeDuration} by car.</p>}<div className="split detail-top"><div><MapPanel focusTerminal={terminal} terminalItems={[]} route={Boolean(directions)} routePoints={directions?.points || []} currentLocation={directions?.origin || null} label={directions ? 'Route from your current location' : 'Calapan City, Oriental Mindoro'} /><div className="card details"><p><b>Address</b><span>{terminal.address}, Calapan City</span></p><p><b>Landmark</b><span>{terminal.landmark || 'Not specified'}</span></p><p><b>Contact</b><span>{terminal.contact_no || 'Not specified'}</span></p><p><b>Vehicles</b><span className="chips">{terminal.vehicles.map(v => <span className="chip" key={v}>{v}</span>)}</span></p><p><b>Location</b><span>{terminal.lat}, {terminal.lng}</span></p></div></div><div className="card"><h2>Routes that stop here</h2>{terminalRoutes.length ? terminalRoutes.map(r => <div className="route-line" key={r.id}><b className={`code code-${r.code[0]}`}>{r.code}</b><div><b>{r.name}</b><span>{r.vehicle}</span></div><span>{r.fare}</span><span>{r.time}</span></div>) : <p>No active routes are assigned to this terminal yet.</p>}</div></div></main></>;
+  const terminalFavorite = {
+    id: terminal.id,
+    title: terminal.name,
+    subtitle: `${terminal.area || ''}${terminal.city ? `, ${terminal.city}` : ''}`,
+    path: `/terminals/${terminal.id}`,
+  };
+  return <><Header /><main className="page"><p className="breadcrumb">Terminals / Calapan City / {terminal.name}</p><div className="title-row"><div><h1>{terminal.name}</h1><p><b className="open">Open now</b> · {terminal.hours}</p></div><div className="actions">{saved.isPassenger && <FavoriteToggle type="terminal" item={terminalFavorite} isSaved={favoriteExists(saved.favorites, 'terminal', terminal.id)} onToggle={saved.toggleFavorite} />}<button type="button" className="button outline" onClick={openDirections} disabled={directionsLoading}>{directionsLoading ? 'Finding your location...' : 'Get directions'}</button><Link className="button outline" to="/reports/create">Report an issue here</Link><Link className="button yellow" to="/reports/create">Rate this terminal</Link></div></div>{directionsError && <p className="error" role="alert">{directionsError}</p>}{directions && <p className="field-help" role="status">Route from your current location to {terminal.name}: {routeDistance}, about {routeDuration} by car.</p>}<div className="split detail-top"><div><MapPanel focusTerminal={terminal} terminalItems={[]} route={Boolean(directions)} routePoints={directions?.points || []} currentLocation={directions?.origin || null} label={directions ? 'Route from your current location' : 'Calapan City, Oriental Mindoro'} /><div className="card details"><p><b>Address</b><span>{terminal.address}, Calapan City</span></p><p><b>Landmark</b><span>{terminal.landmark || 'Not specified'}</span></p><p><b>Contact</b><span>{terminal.contact_no || 'Not specified'}</span></p><p><b>Vehicles</b><span className="chips">{terminal.vehicles.map(v => <span className="chip" key={v}>{v}</span>)}</span></p><p><b>Location</b><span>{terminal.lat}, {terminal.lng}</span></p></div></div><div className="card"><h2>Routes that stop here</h2>{terminalRoutes.length ? terminalRoutes.map(r => <div className="route-line" key={r.id}><b className={`code code-${r.code[0]}`}>{r.code}</b><div><b>{r.name}</b><span>{r.vehicle}</span></div><span>{r.fare}</span><span>{r.time}</span></div>) : <p>No active routes are assigned to this terminal yet.</p>}</div></div></main></>;
 }
 
 function RouteSearch() {
+  const saved = useSavedFavorites();
   const [items, setItems] = useState([]);
   const [terminals, setTerminals] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -489,12 +588,23 @@ function RouteSearch() {
       ? <div className="split route-results">
         <div>
           <h2>{from && to ? `${visibleItems.length} ways to get there` : 'All available routes'}</h2>
-          {visibleItems.map(routeItem => <Link className="card route-result route-result-link" key={routeItem.id} to={`/routes/${routeItem.id}`}>
-            <b className={`code code-${routeItem.code[0]}`}>{routeItem.code}</b>
-            <div><h3>{routeItem.name}</h3><p>{routeItem.detail}</p></div>
-            <strong>{routeItem.fare}<small>{from && to ? `${from} to ${to}` : `${routeItem.origin} to ${routeItem.destination}`} · {routeItem.time}</small></strong>
-            <span className="route-result-arrow">View route →</span>
-          </Link>)}
+          {visibleItems.map(routeItem => {
+            const favorite = {
+              id: routeItem.id,
+              title: routeItem.name,
+              subtitle: routeItem.detail,
+              path: `/routes/${routeItem.id}`,
+            };
+            return <article className="card route-result route-result-wrapper" key={routeItem.id}>
+              <Link className="route-result-link-inner" to={favorite.path}>
+                <b className={`code code-${routeItem.code[0]}`}>{routeItem.code}</b>
+                <div><h3>{routeItem.name}</h3><p>{routeItem.detail}</p></div>
+                <strong>{routeItem.fare}<small>{from && to ? `${from} to ${to}` : `${routeItem.origin} to ${routeItem.destination}`} · {routeItem.time}</small></strong>
+                <span className="route-result-arrow">View route →</span>
+              </Link>
+              {saved.isPassenger && <FavoriteToggle type="route" item={favorite} isSaved={favoriteExists(saved.favorites, 'route', routeItem.id)} onToggle={saved.toggleFavorite} />}
+            </article>;
+          })}
           {visibleItems.length === 0 && <div className="card"><h3>{from && to ? 'No matching active routes' : 'No active routes yet'}</h3><p>{from && to ? 'There are no active routes connecting these selected terminals yet.' : 'Published routes will appear here when available.'}</p></div>}
           <div className="card"><h3>Fare is an estimate.</h3><p>Based on the local fare matrix and route distance in Calapan City.</p></div>
         </div>
@@ -505,6 +615,7 @@ function RouteSearch() {
 }
 
 function RouteDetails() {
+  const saved = useSavedFavorites();
   const { id } = useParams();
   const [route, setRoute] = useState(null);
   const [terminals, setTerminals] = useState([]);
@@ -575,7 +686,13 @@ function RouteDetails() {
     ? `${(roadRoute.distance / 1000).toFixed(1)} km`
     : roadRoute ? `${Math.round(roadRoute.distance)} m` : '';
   const roadDuration = roadRoute ? `${Math.max(1, Math.round(roadRoute.duration / 60))} min by car` : '';
-  return <><Header /><main className="page route-detail-page"><Link className="breadcrumb back-link" to="/route-search">← Back to route search</Link><div className="route-page-heading"><div><span className="eyebrow">ROUTE DETAILS</span><h1>{route.name}</h1><p className="lead">{route.vehicle} · {route.origin} to {route.destination}</p></div><b className={`code code-${route.code[0]}`}>{route.code}</b></div><div className="route-page-grid"><section><MapPanel route={Boolean(roadRoute)} routePoints={roadRoute?.points || []} routeMarkers={[originTerminal, destinationTerminal].filter(Boolean)} terminalItems={[]} label={roadRoute ? `${route.name} road route · ${roadDistance}` : `${route.name} direction`} />{routeLoading && <p className="field-help" role="status">Calculating the road route between terminals...</p>}{routeError && <p className="error" role="alert">{routeError}</p>}{roadRoute && <p className="field-help" role="status">Road route: {roadDistance}, estimated {roadDuration}.</p>}{directionsUrl && <a className="button yellow directions-button" href={directionsUrl} target="_blank" rel="noreferrer">Open turn-by-turn directions</a>}</section><aside className="card route-page-card"><h2>Your route</h2><div className="route-direction"><div><span>ORIGIN</span><strong>{route.origin}</strong></div><i>→</i><div><span>DESTINATION</span><strong>{route.destination}</strong></div></div><div className="route-detail-meta"><span><b>Fare</b>{route.fare}</span><span><b>Schedule</b>{route.schedule || 'Schedule not listed'}</span><span><b>Vehicle</b>{route.vehicle}</span></div><div className="note"><b>Route information</b><p>{route.detail || (roadRoute ? `The highlighted line follows mapped roads between these terminals. The OSRM car estimate is ${roadDistance}, about ${roadDuration}. Actual passenger routes and travel times may differ.` : 'Follow the highlighted route line and check the terminal signs before boarding.')}</p></div></aside></div></main></>;
+  const routeFavorite = {
+    id: route.id,
+    title: route.name,
+    subtitle: `${route.origin} to ${route.destination} · ${route.vehicle}`,
+    path: `/routes/${route.id}`,
+  };
+  return <><Header /><main className="page route-detail-page"><Link className="breadcrumb back-link" to="/route-search">← Back to route search</Link><div className="route-page-heading"><div><span className="eyebrow">ROUTE DETAILS</span><h1>{route.name}</h1><p className="lead">{route.vehicle} · {route.origin} to {route.destination}</p></div><div className="route-detail-actions">{saved.isPassenger && <FavoriteToggle type="route" item={routeFavorite} isSaved={favoriteExists(saved.favorites, 'route', route.id)} onToggle={saved.toggleFavorite} />}<b className={`code code-${route.code[0]}`}>{route.code}</b></div></div><div className="route-page-grid"><section><MapPanel route={Boolean(roadRoute)} routePoints={roadRoute?.points || []} routeMarkers={[originTerminal, destinationTerminal].filter(Boolean)} terminalItems={[]} label={roadRoute ? `${route.name} road route · ${roadDistance}` : `${route.name} direction`} />{routeLoading && <p className="field-help" role="status">Calculating the road route between terminals...</p>}{routeError && <p className="error" role="alert">{routeError}</p>}{roadRoute && <p className="field-help" role="status">Road route: {roadDistance}, estimated {roadDuration}.</p>}{directionsUrl && <a className="button yellow directions-button" href={directionsUrl} target="_blank" rel="noreferrer">Open turn-by-turn directions</a>}</section><aside className="card route-page-card"><h2>Your route</h2><div className="route-direction"><div><span>ORIGIN</span><strong>{route.origin}</strong></div><i>→</i><div><span>DESTINATION</span><strong>{route.destination}</strong></div></div><div className="route-detail-meta"><span><b>Fare</b>{route.fare}</span><span><b>Schedule</b>{route.schedule || 'Schedule not listed'}</span><span><b>Vehicle</b>{route.vehicle}</span></div><div className="note"><b>Route information</b><p>{route.detail || (roadRoute ? `The highlighted line follows mapped roads between these terminals. The OSRM car estimate is ${roadDistance}, about ${roadDuration}. Actual passenger routes and travel times may differ.` : 'Follow the highlighted route line and check the terminal signs before boarding.')}</p></div></aside></div></main></>;
 }
 
 function ReportCreate() {
