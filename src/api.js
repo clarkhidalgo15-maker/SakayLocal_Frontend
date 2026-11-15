@@ -113,6 +113,13 @@ export function login(identifier, password) {
   return request('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) });
 }
 
+export function verifyLoginOtp(challengeToken, otp) {
+  return request('/auth/verify-login-otp', {
+    method: 'POST',
+    body: JSON.stringify({ challenge_token: challengeToken, otp }),
+  });
+}
+
 export function register(payload) {
   return request('/auth/register', { method: 'POST', body: JSON.stringify(payload) });
 }

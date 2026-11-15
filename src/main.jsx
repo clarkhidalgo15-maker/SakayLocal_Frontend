@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CircleMarker, MapContainer, Marker, Popup, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, submitReport, updateAccount } from './api';
+import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, submitReport, updateAccount, verifyLoginOtp } from './api';
 import { initScrollReveal, setDocumentTitle } from './reveal';
 import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
 import './styles.css';
@@ -693,10 +693,23 @@ function Login() {
   const [registrationError, setRegistrationError] = useState('');
   const [registered, setRegistered] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpChallenge, setOtpChallenge] = useState(null);
   const [registrationLoading, setRegistrationLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
   const [registerPasswordVisible, setRegisterPasswordVisible] = useState(false);
+  const finishLogin = account => {
+    if (['admin', 'staff'].includes(account.role)) {
+      localStorage.removeItem('sakaylokal_user');
+      localStorage.setItem('sakaylokal_admin', JSON.stringify(account));
+      navigate('/admin');
+    } else {
+      localStorage.removeItem('sakaylokal_admin');
+      localStorage.setItem('sakaylokal_user', JSON.stringify(account));
+      navigate('/');
+    }
+  };
   const handleLogin = async event => {
     event.preventDefault();
     setLoginError('');
@@ -704,15 +717,11 @@ function Login() {
     const form = new FormData(event.currentTarget);
     try {
       const result = await login(form.get('identifier'), form.get('password'));
-      const account = result.data;
-      if (['admin', 'staff'].includes(account.role)) {
-        localStorage.removeItem('sakaylokal_user');
-        localStorage.setItem('sakaylokal_admin', JSON.stringify(account));
-        navigate('/admin');
+      if (result.data?.otp_required) {
+        setOtpChallenge(result.data.challenge_token);
+        setLoginError('');
       } else {
-        localStorage.removeItem('sakaylokal_admin');
-        localStorage.setItem('sakaylokal_user', JSON.stringify(account));
-        navigate('/');
+        finishLogin(result.data);
       }
     } catch (exception) {
       const message = exception.message || 'The login request failed. Check Apache and the API URL.';
@@ -720,6 +729,22 @@ function Login() {
       popUps.showPopUp({ kind: 'error', title: 'Log in failed', message });
     } finally {
       setLoginLoading(false);
+    }
+  };
+  const handleOtpVerification = async event => {
+    event.preventDefault();
+    setLoginError('');
+    setOtpLoading(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      const result = await verifyLoginOtp(otpChallenge, form.get('otp'));
+      finishLogin(result.data);
+    } catch (exception) {
+      const message = exception.message || 'Could not verify the code. Please try again.';
+      setLoginError(message);
+      popUps.showPopUp({ kind: 'error', title: 'Verification failed', message });
+    } finally {
+      setOtpLoading(false);
     }
   };
   const handleRegister = async event => {
@@ -750,7 +775,15 @@ function Login() {
     }
   };
   return <><Header /><main className="auth-page"><div className="auth-intro"><span className="eyebrow auth-kicker">SAKAYLOKAL ACCOUNT</span><h1>Your trips,<br /><span className="accent-text">made easier.</span></h1><p>Log in to save your details, submit reports, and stay connected with transport services across Oriental Mindoro.</p><ul className="auth-benefits"><li><span className="checkmark">✓</span>Track your submitted reports</li><li><span className="checkmark">✓</span>Find terminals and routes faster</li><li><span className="checkmark">✓</span>One account for passengers and administrators</li></ul></div><div className="auth-panel">
-      {showRegister ? <form className="auth-card form register-card" onSubmit={handleRegister}>
+    {otpChallenge ? <form className="auth-card form auth-card" onSubmit={handleOtpVerification}>
+      <div className="auth-heading auth-heading-inline"><span className="eyebrow">VERIFY YOUR ACCOUNT</span></div>
+      <h1 className="auth-title">Enter your login code</h1>
+      <p className="auth-subtitle">We sent a six-digit code to the email address on your account. It expires in 10 minutes.</p>
+      <label>Verification code<input name="otp" type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" autoComplete="one-time-code" placeholder="000000" required disabled={otpLoading} /></label>
+      {loginError && <p className="error" role="alert">{loginError}</p>}
+      <button className="button green auth-submit" disabled={otpLoading}>{otpLoading ? <><span className="button-spinner" />Verifying...</> : 'Verify and log in'}</button>
+      <p className="auth-toggle-row"><span>Wrong account or code expired?</span><button type="button" className="text-link-button" disabled={otpLoading} onClick={() => { setOtpChallenge(null); setLoginError(''); }}>Back to login</button></p>
+    </form> : showRegister ? <form className="auth-card form register-card" onSubmit={handleRegister}>
         <div className="auth-heading auth-heading-inline"><span className="eyebrow">NEW HERE?</span></div>
         <h1 className="auth-title">Create an account</h1>
         <p className="auth-subtitle">Register to continue and manage your transport account.</p>
