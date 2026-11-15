@@ -32,6 +32,10 @@
   text-decoration: none;
 }
 
+.back-button {
+  margin-bottom: 12px;
+}
+
 .saved-favorites-section {
   padding-top: 24px;
 }
