@@ -843,6 +843,7 @@ function Login() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpChallenge, setOtpChallenge] = useState(null);
+  const [otpCode, setOtpCode] = useState('');
   const [registrationLoading, setRegistrationLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
@@ -866,6 +867,7 @@ function Login() {
     try {
       const result = await login(form.get('identifier'), form.get('password'));
       if (result.data?.otp_required) {
+        setOtpCode('');
         setOtpChallenge(result.data.challenge_token);
         setLoginError('');
       } else {
@@ -927,10 +929,10 @@ function Login() {
       <div className="auth-heading auth-heading-inline"><span className="eyebrow">VERIFY YOUR ACCOUNT</span></div>
       <h1 className="auth-title">Enter your login code</h1>
       <p className="auth-subtitle">We sent a six-digit code to the email address on your account. It expires in 10 minutes.</p>
-      <label>Verification code<input name="otp" type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" autoComplete="one-time-code" placeholder="000000" required disabled={otpLoading} /></label>
+      <label>Verification code<input name="otp" type="tel" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" autoComplete="one-time-code" autoCapitalize="off" spellCheck="false" placeholder="000000" value={otpCode} onChange={event => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required disabled={otpLoading} /></label>
       {loginError && <p className="error" role="alert">{loginError}</p>}
       <button className="button green auth-submit" disabled={otpLoading}>{otpLoading ? <><span className="button-spinner" />Verifying...</> : 'Verify and log in'}</button>
-      <p className="auth-toggle-row"><span>Wrong account or code expired?</span><button type="button" className="text-link-button" disabled={otpLoading} onClick={() => { setOtpChallenge(null); setLoginError(''); }}>Back to login</button></p>
+      <p className="auth-toggle-row"><span>Wrong account or code expired?</span><button type="button" className="text-link-button" disabled={otpLoading} onClick={() => { setOtpChallenge(null); setOtpCode(''); setLoginError(''); }}>Back to login</button></p>
     </form> : showRegister ? <form className="auth-card form register-card" onSubmit={handleRegister}>
         <div className="auth-heading auth-heading-inline"><span className="eyebrow">NEW HERE?</span></div>
         <h1 className="auth-title">Create an account</h1>
