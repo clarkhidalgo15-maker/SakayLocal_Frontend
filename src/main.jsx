@@ -7,7 +7,7 @@ import { getCommutePreferences, removeCommutePreferences, saveCommutePreferences
 import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, resendSignupOtp, submitReport, updateAccount, verifySignupOtp } from './api';
 import { clearSavedFavorites, getSavedFavorites, toggleSavedFavorite } from './savedFavorites';
 import { initScrollReveal, setDocumentTitle } from './reveal';
-import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
+import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, isWithinOrientalMindoroBounds, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
 import './favorites.css';
@@ -543,6 +543,9 @@ function TerminalDetails() {
     setDirectionsLoading(true);
     try {
       const position = await getPreciseCurrentPosition();
+      if (!isWithinOrientalMindoroBounds(position.coords.latitude, position.coords.longitude)) {
+        throw new Error('Your device reports a location outside the supported Oriental Mindoro area. Turn on precise location services and try again.');
+      }
       const route = await getDrivingRoute(
         [position.coords.latitude, position.coords.longitude],
         [Number(terminal.lat), Number(terminal.lng)]
