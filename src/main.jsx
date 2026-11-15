@@ -7,7 +7,7 @@ import { getCommutePreferences, removeCommutePreferences, saveCommutePreferences
 import { adminRequest, changeAccountPassword, changeAdminPassword, getAccount, getAdvisories, getAreas, getMyReports, getPublicAsset, getReport, getRoutes, getTerminals, login, register, resendSignupOtp, submitReport, updateAccount, verifySignupOtp } from './api';
 import { clearSavedFavorites, getSavedFavorites, toggleSavedFavorite } from './savedFavorites';
 import { initScrollReveal, setDocumentTitle } from './reveal';
-import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, isWithinOrientalMindoroBounds, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
+import { addressSummary, assertOrientalMindoroAddress, findMatchingArea, formatRoadLocation, getDrivingRoute, normalizePlace, orientalMindoroCenter, reverseGeocode, snapToRoad } from './geo';
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
 import './favorites.css';
@@ -267,11 +267,9 @@ function getPreciseCurrentPosition() {
   return new Promise((resolve, reject) => {
     const maximumAccuracy = 1000;
     let watchId = null;
-    let bestAccuracy = null;
+    let bestPosition = null;
+    let bestAccuracy = Infinity;
     let timeoutId;
-    const formatAccuracy = accuracy => accuracy >= 1000
-      ? `${(accuracy / 1000).toFixed(1)} km`
-      : `${Math.round(accuracy)} m`;
     const finish = (callback, value) => {
       window.clearTimeout(timeoutId);
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -279,23 +277,22 @@ function getPreciseCurrentPosition() {
     };
 
     timeoutId = window.setTimeout(() => {
-      const error = bestAccuracy === null
-        ? new Error('Could not get a fresh GPS location. Turn on device location services and try again.')
-        : new Error(`Your location is only accurate to ${formatAccuracy(bestAccuracy)}. Turn on precise location or GPS, then try again.`);
-      finish(reject, error);
+      if (bestPosition) finish(resolve, bestPosition);
+      else finish(reject, new Error('Could not get your current location. Turn on device location services and try again.'));
     }, 20000);
 
     try {
       watchId = navigator.geolocation.watchPosition(position => {
         const accuracy = Number(position.coords.accuracy);
-        if (!Number.isFinite(accuracy)) return;
-        bestAccuracy = bestAccuracy === null ? accuracy : Math.min(bestAccuracy, accuracy);
-        if (accuracy <= maximumAccuracy) finish(resolve, position);
+        if (!Number.isFinite(position.coords.latitude) || !Number.isFinite(position.coords.longitude)) return;
+        if (!bestPosition || (Number.isFinite(accuracy) && accuracy < bestAccuracy)) {
+          bestPosition = position;
+          bestAccuracy = Number.isFinite(accuracy) ? accuracy : Infinity;
+        }
+        if (Number.isFinite(accuracy) && accuracy <= maximumAccuracy) finish(resolve, position);
       }, error => {
-        const failure = bestAccuracy === null
-          ? error
-          : new Error(`Your location is only accurate to ${formatAccuracy(bestAccuracy)}. Turn on precise location or GPS, then try again.`);
-        finish(reject, failure);
+        if (bestPosition) finish(resolve, bestPosition);
+        else finish(reject, error);
       }, {
         enableHighAccuracy: true,
         timeout: 20000,
@@ -523,7 +520,6 @@ function TerminalDetails() {
   const terminalId = Number(id);
   const [terminal, setTerminal] = useState(null);
   const [directions, setDirections] = useState(null);
-  const [directionsAccuracy, setDirectionsAccuracy] = useState(null);
   const [directionsLoading, setDirectionsLoading] = useState(false);
   const [directionsError, setDirectionsError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -534,7 +530,6 @@ function TerminalDetails() {
   if (error || !terminal) return <><Header /><main className="page"><div className="card"><h1>Terminal unavailable</h1><p>{error || 'This terminal is no longer active.'}</p><Link className="button dark" to="/terminals">Back to terminals</Link></div></main></>;
   const openDirections = async () => {
     setDirections(null);
-    setDirectionsAccuracy(null);
     setDirectionsError('');
     if (!navigator.geolocation) {
       setDirectionsError('This browser does not support location access. Enable location services or try another browser.');
@@ -543,14 +538,10 @@ function TerminalDetails() {
     setDirectionsLoading(true);
     try {
       const position = await getPreciseCurrentPosition();
-      if (!isWithinOrientalMindoroBounds(position.coords.latitude, position.coords.longitude)) {
-        throw new Error('Your device reports a location outside the supported Oriental Mindoro area. Turn on precise location services and try again.');
-      }
       const route = await getDrivingRoute(
         [position.coords.latitude, position.coords.longitude],
         [Number(terminal.lat), Number(terminal.lng)]
       );
-      setDirectionsAccuracy(Number(position.coords.accuracy));
       setDirections(route);
     } catch (exception) {
       const message = exception.code === 1
@@ -577,7 +568,7 @@ function TerminalDetails() {
     subtitle: `${terminal.area || ''}${terminal.city ? `, ${terminal.city}` : ''}`,
     path: `/terminals/${terminal.id}`,
   };
-  return <><Header /><main className="page"><p className="breadcrumb">Terminals / Calapan City / {terminal.name}</p><div className="title-row"><div><h1>{terminal.name}</h1><p><b className="open">Open now</b> · {terminal.hours}</p></div><div className="actions">{saved.isPassenger && <FavoriteToggle type="terminal" item={terminalFavorite} isSaved={favoriteExists(saved.favorites, 'terminal', terminal.id)} onToggle={saved.toggleFavorite} />}<button type="button" className="button outline" onClick={openDirections} disabled={directionsLoading}>{directionsLoading ? 'Finding your location...' : 'Get directions'}</button><Link className="button outline" to="/reports/create">Report an issue here</Link><Link className="button yellow" to="/reports/create">Rate this terminal</Link></div></div>{directionsError && <p className="error" role="alert">{directionsError}</p>}{directions && <p className="field-help" role="status">Route from your current location (GPS accuracy ±{directionsAccuracy >= 1000 ? `${(directionsAccuracy / 1000).toFixed(1)} km` : `${Math.round(directionsAccuracy)} m`}) to {terminal.name}: {routeDistance}, about {routeDuration} by car.</p>}<div className="split detail-top"><div><MapPanel focusTerminal={terminal} terminalItems={[]} route={Boolean(directions)} routePoints={directions?.points || []} currentLocation={directions?.origin || null} label={directions ? 'Route from your current location' : 'Calapan City, Oriental Mindoro'} /><div className="card details"><p><b>Address</b><span>{terminal.address}, Calapan City</span></p><p><b>Landmark</b><span>{terminal.landmark || 'Not specified'}</span></p><p><b>Contact</b><span>{terminal.contact_no || 'Not specified'}</span></p><p><b>Vehicles</b><span className="chips">{terminal.vehicles.map(v => <span className="chip" key={v}>{v}</span>)}</span></p><p><b>Location</b><span>{terminal.lat}, {terminal.lng}</span></p></div></div><div className="card"><h2>Routes that stop here</h2>{terminalRoutes.length ? terminalRoutes.map(r => <div className="route-line" key={r.id}><b className={`code code-${r.code[0]}`}>{r.code}</b><div><b>{r.name}</b><span>{r.vehicle}</span></div><span>{r.fare}</span><span>{r.time}</span></div>) : <p>No active routes are assigned to this terminal yet.</p>}</div></div></main></>;
+  return <><Header /><main className="page"><p className="breadcrumb">Terminals / Calapan City / {terminal.name}</p><div className="title-row"><div><h1>{terminal.name}</h1><p><b className="open">Open now</b> · {terminal.hours}</p></div><div className="actions">{saved.isPassenger && <FavoriteToggle type="terminal" item={terminalFavorite} isSaved={favoriteExists(saved.favorites, 'terminal', terminal.id)} onToggle={saved.toggleFavorite} />}<button type="button" className="button outline" onClick={openDirections} disabled={directionsLoading}>{directionsLoading ? 'Finding your location...' : 'Get directions'}</button><Link className="button outline" to="/reports/create">Report an issue here</Link><Link className="button yellow" to="/reports/create">Rate this terminal</Link></div></div>{directionsError && <p className="error" role="alert">{directionsError}</p>}{directions && <p className="field-help" role="status">Route from your current location to {terminal.name}: {routeDistance}, about {routeDuration} by car.</p>}<div className="split detail-top"><div><MapPanel focusTerminal={terminal} terminalItems={[]} route={Boolean(directions)} routePoints={directions?.points || []} currentLocation={directions?.origin || null} label={directions ? 'Route from your current location' : 'Calapan City, Oriental Mindoro'} /><div className="card details"><p><b>Address</b><span>{terminal.address}, Calapan City</span></p><p><b>Landmark</b><span>{terminal.landmark || 'Not specified'}</span></p><p><b>Contact</b><span>{terminal.contact_no || 'Not specified'}</span></p><p><b>Vehicles</b><span className="chips">{terminal.vehicles.map(v => <span className="chip" key={v}>{v}</span>)}</span></p><p><b>Location</b><span>{terminal.lat}, {terminal.lng}</span></p></div></div><div className="card"><h2>Routes that stop here</h2>{terminalRoutes.length ? terminalRoutes.map(r => <div className="route-line" key={r.id}><b className={`code code-${r.code[0]}`}>{r.code}</b><div><b>{r.name}</b><span>{r.vehicle}</span></div><span>{r.fare}</span><span>{r.time}</span></div>) : <p>No active routes are assigned to this terminal yet.</p>}</div></div></main></>;
 }
 
 function RouteSearch() {
