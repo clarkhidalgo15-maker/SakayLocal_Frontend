@@ -23,9 +23,11 @@
   margin-top: 14px;
 }
 
-.terminal-card-link,
-.terminal-card-link:hover,
-.terminal-card-link:focus {
+.terminal-card .terminal-card-link:link,
+.terminal-card .terminal-card-link:visited,
+.terminal-card .terminal-card-link:hover,
+.terminal-card .terminal-card-link:focus,
+.terminal-card .terminal-card-link:active {
   color: inherit;
   text-decoration: none;
 }
