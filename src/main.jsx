@@ -592,9 +592,29 @@ function RouteSearch() {
   const [toCity, setToCity] = useState('');
   const [toBarangay, setToBarangay] = useState('');
   const [searched, setSearched] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const popUps = usePopUps();
-  useEffect(() => { Promise.all([getRoutes(), getTerminals(), getAreas()]).then(([routeResult, terminalResult, areaResult]) => { if (Array.isArray(routeResult.data)) setItems(routeResult.data.map(item => ({ ...item, code: item.name.slice(0, 2).toUpperCase(), fare: `₱${item.fare || '0'}`, time: 'Estimated', detail: `${item.origin} to ${item.destination} · ${item.schedule || 'Check schedule'}`, points: (item.map_points || '').split('|').filter(Boolean).map(point => point.split(',').map(Number)) }))); setTerminals(terminalResult.data || []); setAreas(areaResult.data || []); }).catch(exception => { const message = exception.message || 'Could not load live routes.'; setError(message); popUps.showPopUp({ kind: 'error', title: 'Could not load routes', message }); }); }, []);
+  useEffect(() => {
+    let active = true;
+    Promise.all([getRoutes(), getTerminals(), getAreas()])
+      .then(([routeResult, terminalResult, areaResult]) => {
+        if (!active) return;
+        if (Array.isArray(routeResult.data)) setItems(routeResult.data.map(item => ({ ...item, code: item.name.slice(0, 2).toUpperCase(), fare: `₱${item.fare || '0'}`, time: 'Estimated', detail: `${item.origin} to ${item.destination} · ${item.schedule || 'Check schedule'}`, points: (item.map_points || '').split('|').filter(Boolean).map(point => point.split(',').map(Number)) })));
+        setTerminals(terminalResult.data || []);
+        setAreas(areaResult.data || []);
+      })
+      .catch(exception => {
+        if (!active) return;
+        const message = exception.message || 'Could not load live routes.';
+        setError(message);
+        popUps.showPopUp({ kind: 'error', title: 'Could not load routes', message });
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
   const filteredTerminals = (city, barangay) => terminals.filter(terminal => (!city || terminal.city === city) && (!barangay || terminal.area === barangay));
   const visibleItems = items.filter(item => !from || !to || (item.origin.toLowerCase().includes(from.toLowerCase()) && item.destination.toLowerCase().includes(to.toLowerCase())));
   const mapPoints = selectedRoute?.points?.length > 1 ? selectedRoute.points : terminals.map(terminal => [Number(terminal.lat), Number(terminal.lng)]);
@@ -609,6 +629,7 @@ function RouteSearch() {
       <h1>Route and fare search</h1>
       <p className="lead">Choose where you are starting and where you want to go. Select each location and terminal manually.</p>
     </header>
+    {loading ? <div className="card route-search-loading"><Loading label="Loading routes, fares, and locations..." /></div> : <>
     <form className="card route-search-form" onSubmit={event => { event.preventDefault(); setSearched(true); setSelectedRoute(null); }}>
       <div className="route-endpoints">
         <section className="route-endpoint">
@@ -665,6 +686,7 @@ function RouteSearch() {
         <MapPanel routePoints={mapPoints} terminalItems={terminals} label={selectedRoute ? `${selectedRoute.name} route` : 'Calapan City route map'} />
       </div>
       : <div className="card route-search-empty"><span aria-hidden="true">⌖</span><div><h2>Your route will appear here</h2><p>No trip locations are selected yet. Choose your From and To locations, then search to see matching routes and fares.</p></div></div>}
+    </>}
   </main></>;
 }
 
